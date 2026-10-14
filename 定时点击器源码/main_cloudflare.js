@@ -5259,17 +5259,13 @@ threads.start(function() {
         fzsm.show();  // L6460
     }
     var 服务器地址 = CF服务器;  // L6464 改为 Cloudflare 配置(不再读 storage 旧值)
-    var 需要获取服务器地址 = false;  // L6466
+    // 远程公告/广告配置(可选): 拉取失败不阻塞激活流程, 使用空默认值继续
+    var objj = { "点击器显示内容": "", yxjhdjq: "0", qqkey: "", jgsj: "", yxjs: "0" };  // L6466
     try {  // L6467
         var res = http.get(服务器地址 + "/update/guanggaolianjie.js?token=" + CF令牌, {headers: CF请求头()});  // L6474
-        var objj = res.body.json();  // L6475
+        objj = res.body.json();  // L6475
     } catch (e) {
-        需要获取服务器地址 = true;  // L6478
-    }
-    if (需要获取服务器地址 == true) {  // L6480
-        alert("无法连接激活服务器 " + CF服务器 + " ，请检查网络后重试。");  // 原失联备用链(lanzou/520xzs.cn)已移除
-        log("无法连接激活服务器: " + CF服务器);
-        return;  // L6497
+        log("远程公告配置拉取失败, 使用默认配置(不阻塞激活): " + e);  // L6478
     }
     var 时间通道 = storage.get("时间通道", "http://api.pinduoduo.com/api/server/_stm").toString();  // L6502
     网络校时();  // L6503
@@ -5419,7 +5415,14 @@ function 新激活() {
     var cscs = a取时间检验码();  // L6802
     var yzm = new Date().getTime() + wlsjc;  // L6804
     var url = CF服务器 + "/lx=26?IMEI=" + IMEI + "&sg=" + cscs + "&password=" + yzm + "&bbh=" + bbh + "&id=" + yourId + "&token=" + CF令牌;  // L6805
-    var sqnr = http.get(url, {headers: CF请求头()}).body.string();  // L6812
+    var sqnr;  // L6812
+    try {
+        sqnr = http.get(url, {headers: CF请求头()}).body.string();  // L6812
+    } catch (e) {
+        // 网络不可用时仍弹出输入框, 标题用默认提示(用户输入后由 lx=28 校验)
+        sqnr = "<ok>请输入激活码以激活本软件。如未购买, 请联系分发者获取。</ok>";  // L6812-fallback
+        log("lx=26 拉取失败, 使用默认提示: " + e);
+    }
     if (sqnr.lastIndexOf("<ok>") > -1) {  // L6816
         dialogs.build({title: 文本取中间(sqnr, "<ok>", "<"), inputPrefill: "", positive: "确定", negative: "获取激活码"}).on("input", function(input) {
         if (input == "0" || input == "") {  // L6825
@@ -5435,7 +5438,13 @@ function 新激活() {
             var cscs = a取时间检验码();  // L6835
             yzm = new Date().getTime();  // L6836
             url = CF服务器 + "/lx=28?IMEI=" + IMEI + "&sg=" + cscs + "&ys=" + xjhm + "&password=" + yzm + "&bbh=" + bbh + "&id=" + yourId + "&token=" + CF令牌;  // L6837
-            res = http.get(url, {headers: CF请求头()}).body.string();  // L6843
+            try {
+                res = http.get(url, {headers: CF请求头()}).body.string();  // L6843
+            } catch (e) {
+                toast("无法连接激活服务器, 请检查网络后重试。");  // L6843-fallback
+                log("lx=28 提交失败: " + e);
+                return;
+            }
             sqnr = res;  // L6845
             j = sqnr.lastIndexOf("<ok>");  // L6846
             if (j > -1) {  // L6847
