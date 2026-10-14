@@ -1,0 +1,10 @@
+# 项目内部数据 / 构建缓存
+.codebuddy/
+pages-deploy/.wrangler/
+__pycache__/
+*.pyc
+
+# 本地密钥（切勿提交）
+secrets.txt
+*.secret
+.env

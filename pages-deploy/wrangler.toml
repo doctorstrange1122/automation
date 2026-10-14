@@ -1,0 +1,8 @@
+name = "automation-activation"
+pages_build_output_dir = "public"
+compatibility_date = "2024-09-23"
+
+# KV 命名空间绑定 (激活码存储)
+[[kv_namespaces]]
+binding = "KV"
+id = "c572965c80d7401dad86464fb19230c5"
