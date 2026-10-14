@@ -1,6 +1,9 @@
 "ui";  // L2
 // ================= Cloudflare 激活服务配置(更换令牌只需改这两行) =================
 var CF服务器 = "https://automation-activation.pages.dev";  // Pages 激活服务地址, 不含末尾斜杠
+// 应用标识: 与旧版(原包)激活体系隔离。服务端只接受带 app=CF应用标识 且激活码 app 字段一致的请求,
+// 旧版发出的激活码在本软件中一律无效, 因此本软件必须单独激活。
+var CF应用标识 = "auto";
 var CF令牌 = "362521f0335bce2cf2e0a12318705366f97e9e9717769d06";  // 必须与 Pages 端的 TOKEN 一致
 function CF请求头() { return {"Authorization": "Bearer " + CF令牌, "User-Agent": "Mozilla/5.0"}; }
 // ==========================================================================
@@ -21,7 +24,7 @@ var wlsjc = 0;
 var xinhao = "pro";
 var szzzfw = "1";
 var 已添加循环次数 = 0;
-var storage = storages.create("tmalltaobaohelper.byfly");  // L14
+var storage = storages.create("automation_djq_auto");  // L14 (与原包隔离: 不与旧版共享激活记录)
 var mingcheng = "自动化 v" + bbhv;  // L15
 ui.layout(new XML(<drawer id="drawer">
         <vertical>
@@ -5115,7 +5118,7 @@ function 激活隐藏功能() {
         var 已本点击 = true;  // L6242
         var cscs = a取时间检验码();  // L6244
         var yzm = new Date().getTime() + wlsjc;  // L6246
-        var url = CF服务器 + "/lx=26?IMEI=" + IMEI + "&sg=" + cscs + "&password=" + yzm + "&bbh=" + bbh + "&id=" + yourId + "&token=" + CF令牌;  // L6247
+        var url = CF服务器 + "/lx=26?IMEI=" + IMEI + "&sg=" + cscs + "&password=" + yzm + "&bbh=" + bbh + "&id=" + yourId + "&token=" + CF令牌 + "&app=" + CF应用标识;  // L6247
         var res = http.post(url, {lx: "26", IMEI: IMEI, password: yzm}, {headers: CF请求头()});  // L6248
         var sqnr = res.body.string();  // L6253
         if (sqnr.lastIndexOf("<ok>") > -1) {  // L6255
@@ -5132,7 +5135,7 @@ function 激活隐藏功能() {
             if (parseInt(xjhm) > -1) {  // L6274
                 var cscs = a取时间检验码();  // L6275
                 yzm = new Date().getTime();  // L6276
-                url = CF服务器 + "/lx=28?IMEI=" + IMEI + "&sg=" + cscs + "&ys=" + xjhm + "&password=" + yzm + "&bbh=" + bbh + "&id=" + yourId + "&token=" + CF令牌;  // L6277
+                url = CF服务器 + "/lx=28?IMEI=" + IMEI + "&sg=" + cscs + "&ys=" + xjhm + "&password=" + yzm + "&bbh=" + bbh + "&id=" + yourId + "&token=" + CF令牌 + "&app=" + CF应用标识;  // L6277
                 res = http.get(url, {headers: CF请求头()}).body.string();  // L6283
                 sqnr = res;  // L6285
                 j = sqnr.lastIndexOf("<ok>");  // L6286
@@ -5425,7 +5428,7 @@ function 新激活() {
     threads.start(function() {
     var cscs = a取时间检验码();  // L6802
     var yzm = new Date().getTime() + wlsjc;  // L6804
-    var url = CF服务器 + "/lx=26?IMEI=" + IMEI + "&sg=" + cscs + "&password=" + yzm + "&bbh=" + bbh + "&id=" + yourId + "&token=" + CF令牌;  // L6805
+    var url = CF服务器 + "/lx=26?IMEI=" + IMEI + "&sg=" + cscs + "&password=" + yzm + "&bbh=" + bbh + "&id=" + yourId + "&token=" + CF令牌 + "&app=" + CF应用标识;  // L6805
     var sqnr;  // L6812
     try {
         sqnr = http.get(url, {headers: CF请求头()}).body.string();  // L6812
@@ -5448,7 +5451,7 @@ function 新激活() {
         if (parseInt(xjhm) > -1) {  // L6834
             var cscs = a取时间检验码();  // L6835
             yzm = new Date().getTime();  // L6836
-            url = CF服务器 + "/lx=28?IMEI=" + IMEI + "&sg=" + cscs + "&ys=" + xjhm + "&password=" + yzm + "&bbh=" + bbh + "&id=" + yourId + "&token=" + CF令牌;  // L6837
+            url = CF服务器 + "/lx=28?IMEI=" + IMEI + "&sg=" + cscs + "&ys=" + xjhm + "&password=" + yzm + "&bbh=" + bbh + "&id=" + yourId + "&token=" + CF令牌 + "&app=" + CF应用标识;  // L6837
             try {
                 res = http.get(url, {headers: CF请求头()}).body.string();  // L6843
             } catch (e) {
@@ -5532,7 +5535,7 @@ function 验证激活() {
     try {
         var code = storage.get("激活码");  // L6931
         var cscs = a取时间检验码();  // L6932
-        var res = http.get(CF服务器 + "/lx=29?IMEI=" + IMEI + "&code=" + code + "&sg=" + cscs + "&bbh=" + bbh + "&id=" + yourId + "&token=" + CF令牌, {headers: CF请求头()}).body.string();  // L6933
+        var res = http.get(CF服务器 + "/lx=29?IMEI=" + IMEI + "&code=" + code + "&sg=" + cscs + "&bbh=" + bbh + "&id=" + yourId + "&token=" + CF令牌 + "&app=" + CF应用标识, {headers: CF请求头()}).body.string();  // L6933
         if (res.lastIndexOf("<ok>") > -1) {  // L6934
             var a到期时间 = res.substr(16, 13);  // L6935 载荷偏移(含<ok>4字节前缀)
             storage.put("a到期时间", a到期时间);  // L6936
@@ -5564,11 +5567,11 @@ function 新激活2() {
         var jhm = "ka";  // L6949
         var yourId = random(10000000000, 90000000000).toString();  // L6957
         try {  // L6959
-            var res = http.get(CF服务器 + "/lx=100?IMEI=" + IMEI + "&yourId=" + yourId + "&bbh=" + bbh + "&password=" + jhm + "&token=" + CF令牌, {headers: CF请求头()});  // L6962
+            var res = http.get(CF服务器 + "/lx=100?IMEI=" + IMEI + "&yourId=" + yourId + "&bbh=" + bbh + "&password=" + jhm + "&token=" + CF令牌 + "&app=" + CF应用标识, {headers: CF请求头()});  // L6962
             var sqnr = res.body.string();  // L6963
             continue;
         } catch (e) {
-            res = http.get(CF服务器 + "/lx=100?IMEI=" + IMEI + "&yourId=" + yourId + "&bbh=" + bbh + "&password=" + jhm + "&token=" + CF令牌, {headers: CF请求头()});  // L6967
+            res = http.get(CF服务器 + "/lx=100?IMEI=" + IMEI + "&yourId=" + yourId + "&bbh=" + bbh + "&password=" + jhm + "&token=" + CF令牌 + "&app=" + CF应用标识, {headers: CF请求头()});  // L6967
             sqnr = res.body.string();  // L6969
         }
         var j = sqnr.lastIndexOf("8");  // L6975
@@ -5598,7 +5601,7 @@ function 新激活2() {
                             jhm = "0";  // L7006
                         }
                         var yzm = new Date().getTime();  // L7008
-                        var url = CF服务器 + "/lx=28?IMEI=" + IMEI + "&sg=" + cscs + "&ys=" + jhm + "&password=" + jhm + "&bbh=" + bbh + "&id=" + yourId + "&token=" + CF令牌;  // L7009
+                        var url = CF服务器 + "/lx=28?IMEI=" + IMEI + "&sg=" + cscs + "&ys=" + jhm + "&password=" + jhm + "&bbh=" + bbh + "&id=" + yourId + "&token=" + CF令牌 + "&app=" + CF应用标识;  // L7009
                         res = http.post(url, {lx: "28", IMEI: IMEI, password: yzm}, {headers: CF请求头()});  // L7010
                         sqnr = res.body.string();  // L7015
                         j = sqnr.lastIndexOf("<ok>");  // L7016

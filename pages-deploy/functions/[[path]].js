@@ -47,6 +47,15 @@ function genCode() {
   return c;
 }
 const 码格式 = /^[A-Za-z0-9]+$/;
+// 应用标识: 与旧版(原包)隔离。新包请求带 app=AUTO_APP_ID, 只有带相同 app 字段的激活码可用;
+// 旧版发出的码(无 app 字段或 app 为其他值)一律拒绝, 实现"原包激活码对新包无效"。
+const AUTO_APP_ID = "auto";
+function 校验应用标识(rec, app) {
+  if (app !== AUTO_APP_ID) return "";                       // 旧版请求(不带/带其他标识): 不做隔离, 保持兼容
+  if (rec.app && rec.app !== AUTO_APP_ID) return "该激活码不适用于本软件, 请向分发者获取本软件专用激活码";
+  if (!rec.app) return "该激活码为旧版软件专用, 不适用于本软件, 请联系分发者获取专用激活码";
+  return "";
+}
 
 function rnd6() { return String(Math.floor(Math.random() * 900000) + 100000); }
 function text(body, status = 200, headers = {}) {
@@ -149,6 +158,8 @@ async function lx28(params, env) {
   const rec = await kvGet(kv, code, keyHex);
   if (!rec || rec._corrupt) return text("<sb>激活码无效或已过期, 请向分发者索取</sb>");
   if (rec.revoked) return text("<sb>该激活码已被作废, 请联系分发者</sb>");
+  const 应用不符 = 校验应用标识(rec, String(params.app || ""));
+  if (应用不符) return text("<sb>" + 应用不符 + "</sb>");
 
   // 设备绑定
   if (!rec.imei) {
@@ -183,6 +194,8 @@ async function lx29(params, env) {
   const rec = await kvGet(kv, code, keyHex);
   if (!rec || rec._corrupt) return text("<sb>激活码无效, 请重新激活</sb>");
   if (rec.revoked) return text("<sb>激活码已被管理员作废, 软件已停用, 请联系分发者</sb>");
+  const 应用不符29 = 校验应用标识(rec, String(params.app || ""));
+  if (应用不符29) return text("<sb>" + 应用不符29 + "</sb>");
   if (!rec.imei) return text("<sb>该激活码需要重新激活</sb>");
   if (rec.imei !== imei) return text("<sb>激活码已绑定其他设备</sb>");
 
@@ -292,7 +305,7 @@ async function admin(path, params, request, env) {
       // 避免碰撞
       let guard = 0;
       while ((await kv.get(c)) != null && guard++ < 5) c = genCode();
-      await kvPut(kv, c, { v: 1, days, revoked: false, imei: "", activatedAt: 0, createdAt: now }, keyHex);
+      await kvPut(kv, c, { v: 1, app: AUTO_APP_ID, days, revoked: false, imei: "", activatedAt: 0, createdAt: now }, keyHex);
       codes.push(c);
     }
     return json({ ok: true, codes });
