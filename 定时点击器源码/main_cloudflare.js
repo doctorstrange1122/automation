@@ -22,7 +22,7 @@ var xinhao = "pro";
 var szzzfw = "1";
 var 已添加循环次数 = 0;
 var storage = storages.create("tmalltaobaohelper.byfly");  // L14
-var mingcheng = "定时点击器 v" + bbhv;  // L15
+var mingcheng = "自动化 v" + bbhv;  // L15
 ui.layout(new XML(<drawer id="drawer">
         <vertical>
             <appbar bg="#a52a2a">
