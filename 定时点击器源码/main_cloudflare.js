@@ -5145,6 +5145,7 @@ function 激活隐藏功能() {
                         storage.put("a到期时间", a到期时间);  // L6291
                         if (parseInt(a到期时间) > getNow()) {  // L6292
                             storage.put("到期时间", a到期时间);  // L6293
+                            storage.put("app_bind", CF应用标识);  // 应用绑定标记: 无此标记的残留记录一律视为未激活
                             storage.put("ycms", sqnr.substr(13, 3));  // L6294
                             storage.put("a激活方式", sqnr.substr(10, 1));  // L6295
                             d1 = new Date(parseInt(a到期时间)).toLocaleString().replace(/:\d{1,2}$/, " ");  // L6296
@@ -5283,7 +5284,8 @@ threads.start(function() {
     }
     var 时间通道 = storage.get("时间通道", "http://api.pinduoduo.com/api/server/_stm").toString();  // L6502
     网络校时();  // L6503
-    if (!storage.get("到期时间") || !storage.get("激活码")) {  // L6506 首次: 无本地激活记录
+    if (!storage.get("到期时间") || !storage.get("激活码") || storage.get("app_bind") != CF应用标识) {  // L6506 无记录或非本应用绑定 → 一律重新激活
+        storage.remove("到期时间"); storage.remove("激活码"); storage.remove("app_bind");  // 清除任何残留(含旧版共享记录)
         新激活();  // L6507
     } else {
         // 每次启动联网校验(严格: 连不上 / 作废 / 过期 / 无效 → 锁死)
@@ -5467,6 +5469,7 @@ function 新激活() {
                     storage.put("a到期时间", a到期时间);  // L6851
                     if (parseInt(a到期时间) > getNow()) {  // L6853
                         storage.put("到期时间", a到期时间);  // L6854
+                        storage.put("app_bind", CF应用标识);  // 应用绑定标记: 无此标记的残留记录一律视为未激活
                         storage.put("ycms", sqnr.substr(13, 3));  // L6855
                         storage.put("a激活方式", sqnr.substr(10, 1));  // L6858
                         d1 = new Date(parseInt(a到期时间)).toLocaleString().replace(/:\d{1,2}$/, " ");  // L6859
@@ -5541,6 +5544,7 @@ function 验证激活() {
             storage.put("a到期时间", a到期时间);  // L6936
             if (parseInt(a到期时间) > getNow()) {  // L6937
                 storage.put("到期时间", a到期时间);  // L6938
+                storage.put("app_bind", CF应用标识);  // 应用绑定标记: 无此标记的残留记录一律视为未激活
             }
             return "valid";  // L6939
         } else if (res.lastIndexOf("<sb>") > -1) {  // L6940
@@ -5591,6 +5595,7 @@ function 新激活2() {
                         var 激活 = true;  // L6992
                         var daske = false;  // L6993
                         storage.put("到期时间", sqnr.substr(5, 13));  // L6994
+                        storage.put("app_bind", CF应用标识);  // 应用绑定标记: 无此标记的残留记录一律视为未激活
                         storage.put("设备id", yourId);  // L6995
                         storage.put("激活码卡号", jhm);  // L6996
                         var cscs = a取时间检验码();  // L6999
