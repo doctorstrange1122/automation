@@ -1872,6 +1872,12 @@ if (isEmpty(设备高度偏移值)) {  // L2337
 } else {
 }
 function 布局分析() {  // L2339
+    // 前置检查: 布局分析依赖无障碍服务; 未开启时直接提示(鸿蒙/部分国产系统无法授权时给出说明), 不再崩溃
+    if (auto.service == null) {
+        toast("布局分析需要无障碍权限, 请先开启无障碍服务");
+        alert("布局分析需要无障碍权限。\n\n请到系统设置 → 无障碍 中开启本软件的无障碍服务后重试。\n\n(部分鸿蒙/定制系统可能提示无法授权, 需改用截图权限模式或在系统设置中手动允许)");
+        return;
+    }
     threads.start(function() {
     if (window2) {  // L2354
         try {  // L2355
@@ -1895,6 +1901,11 @@ function 布局分析() {  // L2339
             var window1Y = window2.getY();  // L2375
             return true;  // L2376
         case event.ACTION_MOVE:
+            // 防御: MOVE 先于 DOWN 到达时 x/window1X 未初始化会算出 NaN, setPosition 需要 int 会报
+            // "Cannot convert NaN to java.lang.Integer", 这里直接忽略该次事件
+            if (window1X === undefined || window1Y === undefined || x === undefined || y === undefined) {
+                return true;
+            }
             window2.setPosition(window1X + (event.getRawX() - x), window1Y + (event.getRawY() - y));  // L2378
             return true;  // L2380
         case event.ACTION_UP:
