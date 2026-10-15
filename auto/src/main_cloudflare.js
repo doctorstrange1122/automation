@@ -2260,20 +2260,28 @@ function doAnalyze() {
         if (mask.cv && mask.cv.layout) {
             mask.cv.layout(0, 0, SW, SH);
         }
+        // 关键: setSize 之后必须让根 view 重新测量布局, 否则 canvas 内部仍是 0×0 的旧尺寸,
+        // 后续 invalidate 画出来的东西全落在可视区外(诊断表现为 首帧0×0、之后无新帧)。
+        var mroot = ("getView" in mask) ? mask.getView() : null;
+        if (mroot) {
+            if (mroot.requestLayout) {
+                mroot.requestLayout();
+            }
+            if (mroot.measure) {
+                mroot.measure(
+                    android.view.View.MeasureSpec.makeMeasureSpec(SW, android.view.View.MeasureSpec.EXACTLY),
+                    android.view.View.MeasureSpec.makeMeasureSpec(SH, android.view.View.MeasureSpec.EXACTLY)
+                );
+                if (mroot.layout) {
+                    mroot.layout(0, 0, SW, SH);
+                }
+            }
+        }
     } catch (e) {
         log("mask初始化失败: " + e);
     }
     maskCanvas = mask.cv;  // L2484
-    // 诊断: 绿框画不出来时, 只能靠运行时数据定位。把 canvas 真实尺寸与首帧状态直接显示出来。
-    try {
-        var cvw = (mask.cv && mask.cv.getWidth) ? mask.cv.getWidth() : -1;
-        var cvh = (mask.cv && mask.cv.getHeight) ? mask.cv.getHeight() : -1;
-        log("mask诊断: 窗口=" + SW + "x" + SH + " canvas=" + cvw + "x" + cvh +
-            " 节点数=" + nodesGlobal.length + " OFFSET_Y=" + OFFSET_Y);
-        toast("诊断: 画布" + cvw + "x" + cvh + "\n节点" + nodesGlobal.length + "个", "short");
-    } catch (de) {
-        log("mask诊断失败: " + de);
-    }
+    log("mask诊断: 窗口=" + SW + "x" + SH + " 节点数=" + nodesGlobal.length + " OFFSET_Y=" + OFFSET_Y);
     var paintGreen = new Paint();  // L2486
     paintGreen.setColor(colors.parseColor("#FF00FF00"));  // L2487
     paintGreen.setStrokeWidth(3);  // L2488
@@ -2290,14 +2298,14 @@ function doAnalyze() {
     if (!analyzing) {  // L2502
         return;
     }
-    // 诊断: draw 是否被调用、画布实际尺寸与绘制的矩形数量
+    // 诊断: draw 是否被调用、画布实际尺寸与本次实际绘制的矩形数量
+    var _本次绘制 = 0;
     if (!mask.cv._已诊断) {
         mask.cv._已诊断 = true;
         try {
             var dcw = canvas ? canvas.getWidth() : -1;
             var dch = canvas ? canvas.getHeight() : -1;
             log("draw诊断: 被调用 canvas=" + dcw + "x" + dch + " 节点数=" + nodesGlobal.length);
-            toast("绿框绘制中\n画布" + dcw + "x" + dch, "short");
         } catch (de2) {
             log("draw诊断失败: " + de2);
         }
@@ -2312,6 +2320,7 @@ function doAnalyze() {
                 var clickable = safeGet(node, "clickable", false);  // L2512
                 var paint = clickable ? paintGray : paintGreen;  // L2513
                 canvas.drawRect(x.l, x.t + OFFSET_Y, x.r, x.btm + OFFSET_Y, paint);  // L2514
+                _本次绘制++;
                 continue;
             } catch (e) {
             }
@@ -2322,11 +2331,44 @@ function doAnalyze() {
         x = nodesGlobal[highlightIndex];  // L2520
         try {  // L2521
             canvas.drawRect(x.l, x.t + OFFSET_Y, x.r, x.btm + OFFSET_Y, paintRed);  // L2522
+            _本次绘制++;
         } catch (e) {
+        }
+    }
+    // 诊断: 报告本次实际画了多少个框, 与节点数对比即可判断是"没画"还是"画了但看不见"
+    if (mask.cv._诊断次数 == null) {
+        mask.cv._诊断次数 = 0;
+    }
+    mask.cv._诊断次数++;
+    if (mask.cv._诊断次数 <= 3) {
+        try {
+            toast("绿框第" + mask.cv._诊断次数 + "帧: 画布" +
+                (canvas ? canvas.getWidth() : -1) + "x" + (canvas ? canvas.getHeight() : -1) +
+                " 绘制" + _本次绘制 + "框", "short");
+        } catch (de3) {
         }
     }
     return;
 });  // L2501
+    // 关键(修复"看不到绿框"): on("draw") 只在窗口首次布局时触发, 那一帧 canvas 还是 0×0,
+    // 之后 setSize 虽把画布改成 2999×6120, 但没有新的绘制帧 → 绿框永远没被画出来。
+    // 这里做两件事: ①延迟若干次 invalidate, 让布局完成后的画布重新绘制;
+    //              ②每次重绘都真正按当前尺寸画一遍(而不是只在首帧画)。
+    var 重绘次数 = 0;
+    var 重绘定时 = setInterval(function() {
+        重绘次数++;
+        try {
+            if (!analyzing || !maskCanvas) {
+                clearInterval(重绘定时);
+                return;
+            }
+            maskCanvas.invalidate();
+        } catch (e) {
+        }
+        if (重绘次数 >= 8) {
+            clearInterval(重绘定时);
+        }
+    }, 150);
     try {  // L2526
         mask.cv.invalidate();
     } catch (e) {
