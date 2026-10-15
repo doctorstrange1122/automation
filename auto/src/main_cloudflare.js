@@ -2140,7 +2140,12 @@ function 布局分析() {  // L2339
 function safeGet(obj, prop, def) {
     try {  // L2417
         var v = obj[prop]();
-        return v == null ? v : def;
+        // 关键修复: 原写法 `v == null ? v : def` 把三元条件写反了 ——
+        // 取到有效值时返回 def(默认值), 为 null 时反而返回 v。
+        // 结果是 clickable 恒为 false、text/id/className 恒为空,
+        // 面板里"类名: null / 文本: (空) / 可点击: false" 全部由此而来。
+        // 正确语义: 取不到值才回退默认值。
+        return v == null ? def : v;
     } catch (e) {
         return def;
     }
@@ -2223,21 +2228,23 @@ function doAnalyze() {
     }
     var SW = device.width;  // L2474
     var SH = device.height;
-    // 保持原版写法: 用 XML 字面量 w="*" h="*"。
-    // 前几轮改成字符串拼接(""+SW+")是错的 —— Auto.js 对 new XML(字符串) 与 XML 字面量
-    // 走不同的解析路径, 拼接出来的字符串解析后 canvas 拿不到正确尺寸 → on("draw") 不触发。
-    // 原版就是 w="*", 在本机(华为Mate80 Pro Max)能正常显示绿框。
+    //第11轮: 弃用 floaty/rawWindow 的 <canvas> —— 11轮实测该路径下 canvas 像素
+    // 永远不落屏(frame 背景能变红、on(draw) 也被调用, 但不透明纯绿铺满都看不见)。
+    // 改用 Android 原生渲染: 把框画进 Bitmap, 再交给 ImageView 显示。
+    // 这条路径不经过 Auto.js 的 canvas 封装, 由系统 Canvas 直接绘制到窗口。
     var mask = floaty.rawWindow(new XML(<frame w="*" h="*" bg="#00000000">
-            <canvas id="cv" w="*" h="*" />
+            <img id="imv" w="*" h="*" />
         </frame>));  // L2477
     wins.push(mask);  // L2482
+    var _dim = "device=" + SW + "x" + SH;
     try {  // L2483
-        mask.setPosition(0, 0);
         mask.setSize(SW, SH);
     } catch (e) {
+        _dim += " setSize异常:" + e;
     }
-    maskCanvas = mask.cv;  // L2484
-    log("mask诊断: 窗口=" + SW + "x" + SH + " 节点数=" + nodesGlobal.length + " OFFSET_Y=" + OFFSET_Y);
+    maskCanvas = mask.imv;  // L2484
+    try { _dim += " img=" + mask.imv.getWidth() + "x" + mask.imv.getHeight(); } catch (e2) {}
+    log("mask诊断: " + _dim + " OFFSET_Y=" + OFFSET_Y);
     var paintGreen = new Paint();  // L2486
     paintGreen.setColor(colors.parseColor("#FF00FF00"));  // L2487
     paintGreen.setStrokeWidth(3);  // L2488
@@ -2250,56 +2257,52 @@ function doAnalyze() {
     paintRed.setColor(colors.parseColor("#FFFF0000"));  // L2497
     paintRed.setStrokeWidth(3);  // L2498
     paintRed.setStyle(Paint.Style.STROKE);  // L2499
-    mask.cv.on("draw", function(canvas) {
-    if (!analyzing) {  // L2502
-        return;
-    }
-    // 诊断: 记录 draw 是否被调用与画布尺寸(仅写日志, 不弹toast以免干扰使用)
-    var _本次绘制 = 0;
-    if (!mask.cv._已诊断) {
-        mask.cv._已诊断 = true;
+    // 把所有节点框画进 Bitmap, 再交给 ImageView。
+    // 每次重绘生成一张新图(节点110个, 开销可忽略), 避免依赖 canvas 的 invalidate 时机。
+    maskCanvas._重绘 = function() {
+        if (!analyzing || !maskCanvas) {
+            return;
+        }
         try {
-            var dcw = canvas ? canvas.getWidth() : -1;
-            var dch = canvas ? canvas.getHeight() : -1;
-            log("draw诊断: 被调用 canvas=" + dcw + "x" + dch + " 节点数=" + nodesGlobal.length);
-        } catch (de2) {
-            log("draw诊断失败: " + de2);
-        }
-    }
-    var i = 0;  // L2505
-    while (i < nodesGlobal.length) {
-        if (i === highlightIndex) {  // L2507
-        } else {
-            var x = nodesGlobal[i];  // L2509
-            try {  // L2510
-                var node = x.n;  // L2511
-                var clickable = safeGet(node, "clickable", false);  // L2512
-                var paint = clickable ? paintGray : paintGreen;  // L2513
-                canvas.drawRect(x.l, x.t + OFFSET_Y, x.r, x.btm + OFFSET_Y, paint);  // L2514
-                _本次绘制++;
-                continue;
-            } catch (e) {
+            var bmp = android.graphics.Bitmap.createBitmap(SW, SH, android.graphics.Bitmap.Config.ARGB_8888);
+            var cv = new android.graphics.Canvas(bmp);
+            // 背景必须全透明, 否则会盖住被分析的应用
+            cv.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR);
+            var i = 0;
+            while (i < nodesGlobal.length) {
+                if (i === highlightIndex) {
+                } else {
+                    var x = nodesGlobal[i];
+                    try {
+                        var node = x.n;
+                        var clickable = safeGet(node, "clickable", false);
+                        var paint = clickable ? paintGray : paintGreen;
+                        cv.drawRect(x.l, x.t + OFFSET_Y, x.r, x.btm + OFFSET_Y, paint);
+                    } catch (e) {
+                    }
+                }
+                i++;
             }
+            if (highlightIndex >= 0 && highlightIndex < nodesGlobal.length) {
+                x = nodesGlobal[highlightIndex];
+                try {
+                    cv.drawRect(x.l, x.t + OFFSET_Y, x.r, x.btm + OFFSET_Y, paintRed);
+                } catch (e) {
+                }
+            }
+            maskCanvas.setImageBitmap(bmp);
+        } catch (e3) {
+            log("Bitmap绘制失败: " + e3);
         }
-        i++;
-    }
-    if (highlightIndex >= 0 && highlightIndex < nodesGlobal.length) {  // L2519
-        x = nodesGlobal[highlightIndex];  // L2520
-        try {  // L2521
-            canvas.drawRect(x.l, x.t + OFFSET_Y, x.r, x.btm + OFFSET_Y, paintRed);  // L2522
-            _本次绘制++;
-        } catch (e) {
-        }
-    }
-    return;
-});  // L2501
-    try {  // L2526
-        mask.cv.invalidate();
-    } catch (e) {
-    }
-    // 恢复原版结构: 触摸层是独立的 rawWindow(原字节码中 touchFrame + setOnTouchListener)。
-    // 原版这两个窗口能正常工作(本机上原版 APK 可显示绿框并可点选控件), 因此保持原样。
-    // 面板按钮的点不動问题另由【按钮矩形自行命中】解决, 不需要改动窗口层级。
+        return;
+    };
+    // 首次绘制: 窗口刚创建时 ImageView 尚未完成布局, 延后一拍再画, 确保尺寸已就绪。
+    maskCanvas._重绘();
+    threads.start(function() {
+        sleep(300);
+        try { maskCanvas._重绘(); } catch (e) {}
+    });
+    // 独立触摸层(原字节码顺序: mask 画完 → touchWin 触摸)
     var touchWin = floaty.rawWindow(new XML(<frame id="touchFrame" w="*" h="*" bg="#00000000" />));  // L2529
     wins.push(touchWin);  // L2532
     var tf = touchWin.touchFrame;  // L2539
@@ -2397,12 +2400,22 @@ function processTouch(rx, ry) {
         return;
     }
     var hitIndex = -1;  // L2569
+    // 命中判定: 必须同时命中 X 和 Y, 且在所有命中节点中取【面积最小】的那个。
+    // 原实现只判断了 Y(ry - OFFSET_Y 在 t~btm 之间), 会取到"第一条 Y 方向重叠"的节点,
+    // 由于 walk 是后序遍历(子节点在前), 这通常是最外层容器 —— 它的 clickable 恒为 false,
+    // 表现为面板里类名/文本/ID 全空、且"可点击: false"。
+    // 面积最小 = 视觉上最上层、最贴近手指的那个控件, 才是用户真正点中的目标。
+    var bestArea = Infinity;
     var i = 0;  // L2571
     while (i < nodesGlobal.length) {
         var x = nodesGlobal[i];  // L2572
-        if (ry - OFFSET_Y >= x.t && ry - OFFSET_Y <= x.btm) {  // L2573
-            hitIndex = i;  // L2574
-            break;
+        if (ry - OFFSET_Y >= x.t && ry - OFFSET_Y <= x.btm && rx >= x.l && rx <= x.r) {  // L2573
+            var w = x.r - x.l, h = x.btm - x.t;
+            var area = w * h;
+            if (area > 0 && area < bestArea) {
+                bestArea = area;
+                hitIndex = i;
+            }
         }
         i++;
     }
@@ -2410,7 +2423,7 @@ function processTouch(rx, ry) {
         highlightIndex = hitIndex;  // L2581
         if (maskCanvas) {  // L2582
             try {
-                maskCanvas.invalidate();
+                if (maskCanvas._重绘) { maskCanvas._重绘(); } else { maskCanvas.invalidate(); }
             } catch (e) {
             }
         }
@@ -2422,7 +2435,7 @@ function processTouch(rx, ry) {
         highlightIndex = -1;  // L2589
         if (maskCanvas) {  // L2590
             try {
-                maskCanvas.invalidate();
+                if (maskCanvas._重绘) { maskCanvas._重绘(); } else { maskCanvas.invalidate(); }
             } catch (e) {
             }
         }
@@ -2467,7 +2480,16 @@ function showInfoByIndex(index) {
         bnd = node.bounds();
     } catch (e) {
     }
-    var bstr = bnd ? "n/a" : bnd.left + "," + bnd.top + "→" + bnd.right + "," + bnd.bottom;  // L2613
+    // 修复: 原写法 `bnd ? "n/a" : bnd.left...` 同样把条件写反了 ——
+    // 成功取到 bounds 时反而显示 "n/a", 取不到时访问 bnd.left 必定抛异常。
+    var bstr = "n/a";
+    if (bnd) {
+        try {
+            bstr = bnd.left + "," + bnd.top + "→" + bnd.right + "," + bnd.bottom;
+        } catch (e) {
+            bstr = "n/a";
+        }
+    }
     var clickable = safeGet(node, "clickable", false);  // L2614
     var longClickable = safeGet(node, "longClickable", false);  // L2615
     var focused = safeGet(node, "focused", false);  // L2616
@@ -2619,7 +2641,7 @@ function showInfoByIndex(index) {
             var lastInvalidateTime = now;  // L2747
             if (maskCanvas) {  // L2748
                 try {
-                    maskCanvas.invalidate();
+                    if (maskCanvas._重绘) { maskCanvas._重绘(); } else { maskCanvas.invalidate(); }
                 } catch (e) {
                 }
             }
@@ -2632,7 +2654,7 @@ function showInfoByIndex(index) {
         highlightIndex = progress;  // L2754
         if (maskCanvas) {  // L2755
             try {
-                maskCanvas.invalidate();
+                if (maskCanvas._重绘) { maskCanvas._重绘(); } else { maskCanvas.invalidate(); }
             } catch (e) {
             }
         }
@@ -2650,7 +2672,7 @@ function showInfoByIndex(index) {
             highlightIndex = newIdx;  // L2768
             if (maskCanvas) {  // L2769
                 try {
-                    maskCanvas.invalidate();
+                    if (maskCanvas._重绘) { maskCanvas._重绘(); } else { maskCanvas.invalidate(); }
                 } catch (e) {
                 }
             }
@@ -2681,7 +2703,7 @@ function showInfoByIndex(index) {
             highlightIndex = newIdx;  // L2792
             if (maskCanvas) {  // L2793
                 try {
-                    maskCanvas.invalidate();
+                    if (maskCanvas._重绘) { maskCanvas._重绘(); } else { maskCanvas.invalidate(); }
                 } catch (e) {
                 }
             }
