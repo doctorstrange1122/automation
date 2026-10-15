@@ -809,6 +809,10 @@ var bbh = bbhv.replace(/\./i, "");  // L762
 var 总代码 = "";  // L763
 var 代码头部 = "";
 var 测试模式 = 0;
+// 对齐原版: startTime/forwardTime 在原版是顶层全局变量, main() 依赖它们;
+// 若只在 runSrt 内用 var 声明, main() 读到 undefined → Date.parse(undefined)=NaN → 开始运行无反应
+var startTime = "";
+var forwardTime = 0;
 function 校时() {
     var thread = threads.start(function() {
     网络校时();  // L770
@@ -1898,7 +1902,7 @@ ui["显示时间"].on("check", function(checked) {
         if (checked) {  // L2161
             storage.put("显示时间", "真");  // L2163
             floaty.closeAll();  // L2164
-            var 悬浮时钟停止 = 1;  // L2165
+            悬浮时钟停止 = 1;  // L2165
             悬浮时钟停止 = 0;  // L2167
             悬浮时间();  // L2168
         } else {
@@ -2013,11 +2017,17 @@ function 布局分析() {  // L2339
             window2.close();
         } catch (e) {
         }
-        var window2 = null;  // L2356
+        window2 = null;  // L2356
     }
     window2 = floaty.window(new XML(<frame>
                 <button id="action" text="开始分析" />
             </frame>));  // L2359
+    // 修复: 原版对按钮窗口调用了 setTouchable(true); 缺失时 floaty 悬浮窗默认不接收触摸事件,
+    // 导致"开始分析"按钮无法拖动、无法点击(关不掉)。此处补齐, 与原版保持一致。
+    try {
+        window2.setTouchable(true);
+    } catch (e) {
+    }
     window2.setPosition(100, device.height * 0.4);  // L2365
     var x = 0;  // L2366
     var y = 0;
@@ -2109,7 +2119,7 @@ function doAnalyze() {
         }
         return;  // L2445
     }
-    var nodesGlobal = [];  // L2449
+    nodesGlobal = [];  // L2449
     (function walk(n, level) {
     var i = n.childCount() - 1;  // L2451
     while (i >= 0) {
@@ -2147,7 +2157,7 @@ function doAnalyze() {
         mask.setSize(SW, SH);
     } catch (e) {
     }
-    var maskCanvas = mask.cv;  // L2484
+    maskCanvas = mask.cv;  // L2484
     var paintGreen = new Paint();  // L2486
     paintGreen.setColor(colors.parseColor("#FF00FF00"));  // L2487
     paintGreen.setStrokeWidth(3);  // L2488
@@ -2251,7 +2261,7 @@ function processTouch(rx, ry) {
         i++;
     }
     if (hitIndex >= 0) {  // L2579
-        var highlightIndex = hitIndex;  // L2581
+        highlightIndex = hitIndex;  // L2581
         if (maskCanvas) {  // L2582
             try {
                 maskCanvas.invalidate();
@@ -2280,7 +2290,7 @@ function closePanel() {
     try {  // L2598
         if (panel) {
             panel.close();
-            var panel = null;
+            panel = null;
         }
     } catch (e) {
     }
@@ -2344,7 +2354,7 @@ function showInfoByIndex(index) {
     try {  // L2651
         var pw = Math.max(340, Math.min(device.width * 4 / 5, device.width));  // L2653
         var ph = Math.max(750, Math.min(device.height * 0.83, device.height));  // L2655
-        var panel = floaty.window(new XML(<vertical bg="#DDFFFFFF" padding="8" margin="0">
+        panel = floaty.window(new XML(<vertical bg="#DDFFFFFF" padding="8" margin="0">
 
                 <text id="prop_activity" textSize="15sp" textColor="#FF0000AA" clickable="true" />
                 <text id="prop_depth" textSize="15sp" textColor="#FF000000" clickable="true" />
@@ -2427,7 +2437,7 @@ function showInfoByIndex(index) {
         if (!fromUser) {  // L2743
             return;
         }
-        var highlightIndex = progress;  // L2744
+        highlightIndex = progress;  // L2744
         var now = Date.now();  // L2745
         if (now - lastInvalidateTime > 108) {  // L2746
             var lastInvalidateTime = now;  // L2747
@@ -2443,7 +2453,7 @@ function showInfoByIndex(index) {
         return;  // L2751
     }, onStopTrackingTouch: function(seekBar) {
         var progress = seekBar.getProgress();  // L2753
-        var highlightIndex = progress;  // L2754
+        highlightIndex = progress;  // L2754
         if (maskCanvas) {  // L2755
             try {
                 maskCanvas.invalidate();
@@ -2461,7 +2471,7 @@ function showInfoByIndex(index) {
         var cur = panel.slider.getProgress();  // L2765
         var newIdx = Math.max(0, cur - 1);  // L2766
         if (newIdx !== cur) {  // L2767
-            var highlightIndex = newIdx;  // L2768
+            highlightIndex = newIdx;  // L2768
             if (maskCanvas) {  // L2769
                 try {
                     maskCanvas.invalidate();
@@ -2492,7 +2502,7 @@ function showInfoByIndex(index) {
         var max = panel.slider.getMax();  // L2789
         var newIdx = Math.min(max, cur + 1);  // L2790
         if (newIdx !== cur) {  // L2791
-            var highlightIndex = newIdx;  // L2792
+            highlightIndex = newIdx;  // L2792
             if (maskCanvas) {  // L2793
                 try {
                     maskCanvas.invalidate();
@@ -2533,8 +2543,8 @@ function showInfoByIndex(index) {
             } catch (e) {
             }
         }
-        var wins = [];  // L2821
-        var maskCanvas = null;  // L2822
+        wins = [];  // L2821
+        maskCanvas = null;  // L2822
         toast("已关闭画框");  // L2823
     }
     return;
@@ -2553,7 +2563,7 @@ function stopAnalyzeAndClearFrames() {
             window2.close();
         } catch (e) {
         }
-        var window2 = null;  // L2839
+        window2 = null;  // L2839
     }
     for (var i = 0; i < wins.length; i++) {
         try {  // L2842
@@ -2562,21 +2572,21 @@ function stopAnalyzeAndClearFrames() {
         } catch (e) {
         }
     }
-    var wins = [];  // L2844
-    var maskCanvas = null;  // L2845
+    wins = [];  // L2844
+    maskCanvas = null;  // L2845
     closePanel();  // L2846
     return;
 }
 
 function stopAnalyze() {
-    var highlightIndex = -1;  // L2851
-    var nodesGlobal = [];  // L2852
+    highlightIndex = -1;  // L2851
+    nodesGlobal = [];  // L2852
     stopAnalyzeAndClearFrames();  // L2853
     return;
 }
 
 function cleanupAll() {
-    var alive = false;  // L2858
+    alive = false;  // L2858
     analyzing = false;  // L2859
     try {  // L2860
         events.removeAllListeners("key_down");
@@ -2668,9 +2678,9 @@ ui["添加"].on("click", function() {
 ui["清除"].on("click", function() {
     初始化列表();  // L2954
     logWithTime("已清除保存的点！");  // L2955
-    var 添加循环次数 = 0;  // L2956
-    var 可添加否则次数 = 0;  // L2957
-    var 可添加结束次数 = 0;  // L2958
+    添加循环次数 = 0;  // L2956
+    可添加否则次数 = 0;  // L2957
+    可添加结束次数 = 0;  // L2958
     return;
 });  // L2953
 ui.autoService.on("check", function(checked) {
@@ -2926,8 +2936,8 @@ var NTPjd = {requiredResponses: 3, serverTimes: [], serverDelay: [], serverUrl: 
         averageDelay = Math.round(sumDelay / i);  // L3253
         storage.put("NTPjdClockOffset", averageOffset + "|" + NTPjd.fixTime());  // L3254
         storage.put("NTPjdClockDelay", averageDelay);  // L3255
-        var wlsjc = averageOffset;  // L3256
-        var 网络延时 = averageDelay;  // L3257
+        wlsjc = averageOffset;  // L3256
+        网络延时 = averageDelay;  // L3257
     } else {
         NTPjd.getServerTime();  // L3259
     }
@@ -3000,8 +3010,8 @@ var NTPpdd = {requiredResponses: 3, serverTimes: [], serverDelay: [], serverUrl:
         averageDelay = Math.round(sumDelay / i);  // L3339
         storage.put("NTPpddClockOffset", averageOffset + "|" + NTPpdd.fixTime());  // L3340
         storage.put("NTPpddClockDelay", averageDelay);  // L3341
-        var wlsjc = averageOffset;  // L3342
-        var 网络延时 = averageDelay;  // L3343
+        wlsjc = averageOffset;  // L3342
+        网络延时 = averageDelay;  // L3343
     } else {
         NTPpdd.getServerTime();  // L3346
     }
@@ -3076,8 +3086,8 @@ var NTP = {requiredResponses: 3, serverTimes: [], serverDelay: [], serverUrl: "h
         storage.put("NTPClockDelay", averageDelay);
         var NTPClockDelay = averageDelay;  // L3399
         var NTPClockOffset = averageOffset;  // L3400
-        var 网络延时 = NTPClockDelay;  // L3401
-        var wlsjc = NTPClockOffset;  // L3402
+        网络延时 = NTPClockDelay;  // L3401
+        wlsjc = NTPClockOffset;  // L3402
     } else {
         NTP.getServerTime();  // L3404
     }
@@ -3180,11 +3190,11 @@ ui.runSrt.click(function() {
         floaty.requestPermission();  // L3593
         return;  // L3594
     }
-    var startTime = ui.startTime.getText().toString();  // L3631
+    startTime = ui.startTime.getText().toString();  // L3631  // 全局赋值(对齐原版), 供 main() 读取
     var sjyssj1 = parseInt(ui["随机延迟时间1"].getText());  // L3632
     var sjyssj2 = parseInt(ui["随机延迟时间2"].getText());  // L3633
     var sjpyz = parseInt(ui["随机偏移值"].getText());  // L3634
-    var forwardTime = parseInt(ui.forwardTime.getText());  // L3637
+    forwardTime = parseInt(ui.forwardTime.getText());  // L3637  // 全局赋值(对齐原版), 供 main() 读取
     var 需点击次数 = parseInt(ui["次数"].getText());  // L3638
     var 时间间隔 = parseInt(ui["时间间隔"].getText());  // L3639
     var 点击时长 = parseInt(ui["点击时长"].getText());  // L3640
@@ -3227,7 +3237,7 @@ ui.runSrt.click(function() {
         }
         ui.runSrt.setText("停止运行");  // L3725
         if (!监听函数已运行) {  // L3726
-            var 监听函数已运行 = true;  // L3727
+            监听函数已运行 = true;  // L3727
             events.broadcast.on("定时点击器", function(name) {
             if (name == "开始执行") {  // L3731
             } else {
@@ -3237,7 +3247,7 @@ ui.runSrt.click(function() {
                     threads.shutDownAll();  // L3742
                 } else {
                     if (name == "截图完毕") {  // L3744
-                        var 截图完毕 = true;  // L3745
+                        截图完毕 = true;  // L3745
                     } else {
                         if (name == "无截图权限") {  // L3748
                             floaty.closeAll();  // L3749
@@ -3256,13 +3266,25 @@ ui.runSrt.click(function() {
         threads.start(main);  // L3758
     } else {
         floaty.closeAll();  // L3764
-        e.getEngine().emit("jiaobenkgz", "关闭提示框");  // L3765
+        // 修复: 原代码此处直接 e.getEngine(), 但 e 是 main() 内 engines.execScript 的返回值,
+        // 在本作用域并未定义 → ReferenceError → 点"停止运行"直接闪退。改为容错调用。
+        try {
+            if (typeof e != "undefined" && e != null) {
+                e.getEngine().emit("jiaobenkgz", "关闭提示框");  // L3765
+            }
+        } catch (e1) {
+        }
         if (测试模式 == 0) {  // L3766
             $settings.setEnabled("foreground_service", false);  // L3767
         }
         device.cancelKeepingAwake();  // L3771
         ui.runSrt.setText("开始运行");  // L3772
-        e.getEngine().forceStop();  // L3773
+        try {
+            if (typeof e != "undefined" && e != null) {
+                e.getEngine().forceStop();  // L3773
+            }
+        } catch (e2) {
+        }
         threads.shutDownAll();  // L3774
     }
     return;
@@ -3298,7 +3320,7 @@ function main() {
             }
             threads.start(function() {
             var 已完成线程数 = 0;  // L3920
-            var 输入密码 = 0;  // L3921
+            输入密码 = 0;  // L3921
             nowTime = getNow();  // L3923
             ycsj = startChecktimeFix - nowTime;  // L3924
             if (ycsj > 3) {  // L3925
@@ -5130,7 +5152,7 @@ function 开启监听按键() {  // L6141
         }
         return;
     });  // L6171
-        var 已开启监听按键 = true;  // L6189
+        已开启监听按键 = true;  // L6189
     }
     return;  // L6190
 }
