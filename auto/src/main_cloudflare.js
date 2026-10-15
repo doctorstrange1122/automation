@@ -2047,12 +2047,12 @@ function 布局分析() {  // L2339
     window2 = floaty.window(new XML(<frame>
                 <button id="action" text="开始分析" />
             </frame>));  // L2359
-    // 修复: 原版对按钮窗口调用了 setTouchable(true); 缺失时 floaty 悬浮窗默认不接收触摸事件,
-    // 导致"开始分析"按钮无法拖动、无法点击(关不掉)。此处补齐, 与原版保持一致。
-    try {
-        window2.setTouchable(true);
-    } catch (e) {
-    }
+    // 对齐原版: 原版此处是 floaty.window(<button id="action" .../>), 且【没有】调用 setTouchable。
+    // 原字节码中 setTouchable 字符串只出现 1 次, 位置在 doAnalyze 的 touchFrame 上(即下面的 rawWindow)。
+    // 之前在这里给 window2 加 setTouchable 是多余且有害的:
+    // floaty.window 返回的 JsWindow 包装类无此方法, 调用抛
+    // InternalError: Java class "com.stardust.autojs.runtime.api.Floaty$JsWindow",
+    // 异常被下方 try/catch 吞掉 → 按钮点不动/拖不动/关不掉。现已移除, 与原版一致。
     window2.setPosition(100, device.height * 0.4);  // L2365
     // 对齐原版: 原版 threads.start 内的悬浮按钮函数开头有一句 setInterval(()=>{},1000),
     // 作用是让线程的事件循环持续存活。原字节码中该源码明文可见:
@@ -2076,11 +2076,6 @@ function 布局分析() {  // L2339
     try {
     var act = event.getAction();  // 0=DOWN 1=UP 2=MOVE
     var ACT_DOWN = 0, ACT_UP = 1, ACT_MOVE = 2;
-    // 诊断: 首次收到触摸时提示一次, 用于确认事件是否真的送达悬浮窗
-    if (!window2._已确认触摸) {
-        window2._已确认触摸 = true;
-        toast("触摸已收到, 动作码=" + act);
-    }
     switch (act) {  // L2370
         case ACT_DOWN:
             x = event.getRawX();  // L2372
@@ -2126,8 +2121,8 @@ function 布局分析() {  // L2339
     }
     } catch (err) {
         // 诊断: 触摸回调里若抛异常, 原版会静默吞掉 → 用户只看到"点了没反应"。
-        // 这里显式提示, 便于定位真实失败点。
         toast("布局分析触摸异常: " + err);
+        log("布局分析触摸异常: " + err);
         return true;
     }
 });  // L2369
@@ -2258,7 +2253,13 @@ function doAnalyze() {
         mask.cv.invalidate();
     } catch (e) {
     }
-    var touchWin = floaty.window(new XML(<frame id="touchFrame" w="*" h="*" bg="#00000000" />));  // L2529
+    // 对齐原版: 原版此处用的是 floaty.rawWindow(...), 不是 floaty.window(...)
+    // (原字节码中 rawWindow 字符串存在且只出现 1 次, 对应下面 touchFrame 那处)。
+    // 差异要点: floaty.window 返回的 JsWindow 包装类没有 setTouchable 方法,
+    // 调用它会抛 InternalError: Java class "com.stardust.autojs.runtime.api.Floaty$JsWindow"
+    // —— 这正是"开始分析"按钮点了没反应的原因(异常被 try/catch 静默吞掉)。
+    // floaty.rawWindow 返回原始 window 对象, 支持 setPosition/setSize/setTouchable。
+    var touchWin = floaty.rawWindow(new XML(<frame id="touchFrame" w="*" h="*" bg="#00000000" />));  // L2529
     wins.push(touchWin);  // L2532
     try {  // L2533
         touchWin.setPosition(0, 0);  // L2534
