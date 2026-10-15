@@ -2675,9 +2675,20 @@ ui["清除"].on("click", function() {
 ui.autoService.on("check", function(checked) {
     if (checked) {  // L2963
         检查敏感应用提醒();  // L2965
-    }
-    if (checked && auto.service == null) {  // L2967
-        app.startActivity({action: "android.settings.ACCESSIBILITY_SETTINGS"});  // L2968
+        if (auto.service == null) {  // 未开启时才跳转
+            toast("请前往系统设置 → 无障碍 中开启本软件服务, 开启后返回即可");  // 明确提示
+            try {  // 用原生 Intent 直接跳转, 比 app.startActivity(action) 更稳
+                var intent = new android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(intent);
+            } catch (e) {
+                try {
+                    app.startActivity("accessibility");  // Auto.js 快捷方式兜底
+                } catch (e2) {
+                    toast("跳转无障碍设置失败, 请手动打开: 设置 → 无障碍 → 本软件");
+                }
+            }
+        }
     }
     if (!checked && auto.service != null) {  // L2972
         auto.service.disableSelf();  // L2973
