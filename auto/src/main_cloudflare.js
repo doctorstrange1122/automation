@@ -45,18 +45,19 @@ function act_取中间(s, a, b) {
 }
 
 // 联网请求(网络操作放子线程, 主线程等待结果)
-function act_请求(url) {
+function act_请求(url, 重试次数) {
+    if (重试次数 == null) { 重试次数 = 1; }
     var r = { done: false, ok: false, msg: "" };
     threads.start(function() {
         try {
-            // 优化: 原版 http.get 无超时, 网络不通时会挂到系统默认超时(可能十几秒),
-            // 叠加外层 30 秒轮询 → 用户感觉"卡死"。这里显式给 connect/read/writeTimeout。
+            // 超时设置: 内层 15 秒, 外层轮询 20 秒 —— 必须外层 > 内层, 否则线程还没等到
+            // 响应就被判定为超时(这正是上一版"校验不稳定容易超时"的原因: 内层8秒/外层5秒, 矛盾)
             var res = http.get(url, {
                 headers: {},
-                timeout: 8000,
-                connectTimeout: 5000,
-                readTimeout: 8000,
-                writeTimeout: 5000
+                timeout: 15000,
+                connectTimeout: 8000,
+                readTimeout: 15000,
+                writeTimeout: 8000
             }).body.string();
             if (res.indexOf("<ok>") > -1) { r.ok = true; }
             else { r.msg = act_取中间(res, "<sb>", "<") || "激活码无效"; }
@@ -65,10 +66,15 @@ function act_请求(url) {
         }
         r.done = true;
     });
-    // 优化: 轮询上限 60×500ms=30 秒 → 20×250ms=5 秒; 配合上面的 8 秒网络超时足够
+    // 外层轮询 20×1000ms = 20 秒, 严格大于内层 15 秒网络超时, 保证不会提前放弃
     var n = 0;
-    while (!r.done && n < 20) { sleep(250); n++; }
-    if (!r.done) { r.msg = "连接激活服务器超时"; }
+    while (!r.done && n < 20) { sleep(1000); n++; }
+    if (!r.done) { r.msg = "连接激活服务器超时"; return r; }
+    // 网络类失败自动重试(激活码无效/已作废等业务错误不重试, 避免无谓等待)
+    if (!r.ok && 重试次数 < 3 && (r.msg.indexOf("无法连接") > -1 || r.msg.indexOf("超时") > -1)) {
+        log("激活请求失败(" + r.msg + "), 第" + 重试次数 + "次重试");
+        return act_请求(url, 重试次数 + 1);
+    }
     return r;
 }
 
@@ -2147,6 +2153,7 @@ var window2 = null;  // L2423
 var wins = [];  // L2424
 var panel = null;  // L2425
 var lastTouchMs = 0;  // L2426
+var 面板区域 = null;   // 面板在屏幕上的矩形, 用于让全屏触摸层在面板区域放行点击
 var nodesGlobal = [];  // L2428
 var highlightIndex = -1;  // L2429
 var maskCanvas = null;  // L2430
@@ -2205,7 +2212,20 @@ function doAnalyze() {
     try {  // L2483
         mask.setPosition(0, 0);
         mask.setSize(SW, SH);
+        // 强制窗口透明: rawWindow 创建的 Window 默认带白色背景主题, 在部分机型/系统上
+        // bg="#00000000" 不生效, 会导致整屏发白把下层界面完全遮住(原版背景是透明的)。
+        // 必须同时清掉 window 背景与根 view 背景。
+        mask.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        var mv = ("getView" in mask) ? mask.getView() : null;
+        if (mv && mv.setBackgroundColor) {
+            mv.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        }
+        if (mask.cv && mask.cv.setBackgroundColor) {
+            mask.cv.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        }
+        mask.setDimAmount(0);
     } catch (e) {
+        log("mask透明化失败: " + e);
     }
     maskCanvas = mask.cv;  // L2484
     var paintGreen = new Paint();  // L2486
@@ -2261,22 +2281,36 @@ function doAnalyze() {
     // floaty.rawWindow 返回原始 window 对象, 支持 setPosition/setSize/setTouchable。
     var touchWin = floaty.rawWindow(new XML(<frame id="touchFrame" w="*" h="*" bg="#00000000" />));  // L2529
     wins.push(touchWin);  // L2532
+    var tf = touchWin.touchFrame;  // L2539
     try {  // L2533
         touchWin.setPosition(0, 0);  // L2534
         touchWin.setSize(SW, SH);  // L2535
         touchWin.setTouchable(true);  // L2536
+        // 透明化(同上: 否则这层全屏窗口会白屏遮挡整个界面)
+        touchWin.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        var tvw = ("getView" in touchWin) ? touchWin.getView() : null;
+        if (tvw && tvw.setBackgroundColor) {
+            tvw.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        }
+        if (tf && tf.setBackgroundColor) {
+            tf.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        }
     } catch (e) {
+        log("touchWin透明化失败: " + e);
     }
-    var tf = touchWin.touchFrame;  // L2539
     try {  // L2540
         tf.setOnTouchListener(function(view, ev) {
         try {  // L2542
-            if (ev.getAction() === ev.ACTION_UP) {  // L2543
+        var evAct = ev.getAction();
+            // 用整数动作码而非 ev.ACTION_UP: Rhino 取 Java 静态字段可能返回 undefined,
+            // 那样 `ev.getAction() === undefined` 恒为 false → processTouch 永不执行,
+            // 表现就是"全屏被遮罩挡住、点任何位置都没反应"。
+            if (evAct === 1) {  // ACTION_UP = 1
                 var now = Date.now();  // L2544
                 if (now - lastTouchMs < 300) {  // L2545
                     return true;
                 }
-                var lastTouchMs = now;  // L2546
+                lastTouchMs = now;  // L2546
                 var rx = ev.getRawX ? ev.getX() : ev.getRawX();  // L2548
                 var ry = ev.getRawY ? ev.getY() : ev.getRawY();  // L2549
                 threads.start(function() {
@@ -2284,7 +2318,20 @@ function doAnalyze() {
             return;
         });  // L2551
             }
-            if (ev.getAction() === ev.ACTION_DOWN) {  // L2555
+            if (evAct === 0) {  // ACTION_DOWN = 0
+                // 关键修复: touchWin 是覆盖全屏的触摸层, 层级在信息面板(panel)之上,
+                // 会把面板里"停止分析/关闭"的点击全部吃掉 → 整屏无法操作、按钮无反应。
+                // 命中面板矩形时返回 false, 让事件继续传给下层的 panel 控件。
+                try {
+                    if (面板区域) {
+                        var dx0 = ev.getRawX ? ev.getRawX() : ev.getX();
+                        var dy0 = ev.getRawY ? ev.getRawY() : ev.getY();
+                        if (dx0 >= 面板区域.l && dx0 <= 面板区域.r && dy0 >= 面板区域.t && dy0 <= 面板区域.b) {
+                            return false;
+                        }
+                    }
+                } catch (e2) {
+                }
                 return true;
             }
         } catch (e) {
@@ -2299,6 +2346,9 @@ function doAnalyze() {
         return;
     });  // L2562
     }
+    // 使用引导: 分析模式下整个屏幕被触摸层覆盖, 用户容易以为卡死。
+    // 明确告知如何退出(点已选中的节点后, 用面板上的"停止分析/关闭"退出)。
+    toast("布局分析已开启\n点击屏幕上的控件查看属性\n用面板上的「停止分析」或「关闭」退出", "long");
     return;
 }
 
@@ -2342,6 +2392,7 @@ function processTouch(rx, ry) {
 }
 
 function closePanel() {
+    面板区域 = null;   // 面板已关闭, 取消触摸层放行区域
     ui.run(function() {
     try {  // L2598
         if (panel) {
@@ -2444,7 +2495,16 @@ function showInfoByIndex(index) {
                     <button id="bk" text="关闭" w="0" layout_weight="1" h="48" bg="#FF888888" textColor="#FFFFFFFF" textSize="16sp" marginLeft="8" />
                 </horizontal>
             </vertical>));  // L2657
-        panel.setPosition(Math.round((device.width - pw) / 2), Math.round(device.height * 0.015));  // L2693
+        var panelX = Math.round((device.width - pw) / 2);
+        var panelY = Math.round(device.height * 0.015);
+        panel.setPosition(panelX, panelY);  // L2693
+        // 记录面板矩形, 供全屏触摸层做"区域放行"(见 doAnalyze 内 ACTION_DOWN 分支)
+        面板区域 = {
+            l: panelX - 12,
+            t: panelY - 12,
+            r: panelX + pw + 12,
+            b: panelY + ph + 12
+        };
         ui.run(function() {
         panel.prop_activity.setText("当前Activity: " + currentActivity2);  // L2696
         panel.prop_depth.setText("控件层级: " + depth);  // L2697
