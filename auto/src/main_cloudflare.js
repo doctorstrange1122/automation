@@ -2232,51 +2232,42 @@ function doAnalyze() {
         '</frame>';
     var mask = floaty.rawWindow(new XML(maskXml));  // L2477
     wins.push(mask);  // L2482
-    // 层级保险: mask 需绘制绿框, 必须保证它处于 touchWin(全屏触摸层) 之下但仍可绘制。
-    // floaty 的窗口按创建顺序叠放, mask 先建所以在下层; 这里显式标记并在
-    // touchWin 创建后把 mask 重新提到可见位置, 避免被全屏触摸层遮住导致"看不到绿框"。
-    try {
-        if (mask.getView) {
-            mask.getView().setZOrderOnTop(false);
-        }
-    } catch (e) {
-    }
+    // 说明: 触摸监听直接挂在 mask 自己身上(见下方), 全程只有这一个全屏窗口,
+    // 因此不存在"后建的触摸层盖住画框层"的层级遮挡问题。
     try {  // L2483
         mask.setPosition(0, 0);
         mask.setSize(SW, SH);
-        // 强制窗口透明: rawWindow 创建的 Window 默认带白色背景主题, 在部分机型/系统上
-        // bg="#00000000" 不生效, 会导致整屏发白把下层界面完全遮住(原版背景是透明的)。
-        // 必须同时清掉 window 背景与根 view 背景。
+        // 透明化: rawWindow 默认带白色背景主题, 不清掉会整屏发白
         mask.setBackgroundColor(android.graphics.Color.TRANSPARENT);
         var mv = ("getView" in mask) ? mask.getView() : null;
-        if (mv && mv.setBackgroundColor) {
-            mv.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        if (mv) {
+            if (mv.setBackgroundColor) {
+                mv.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+            }
+            if (mv.setZOrderOnTop) {
+                // 置顶: 保证画框层不会被随后创建的触摸层遮住
+                mv.setZOrderOnTop(true);
+                mv.setZOrderMediaOverlay(false);
+            }
         }
         if (mask.cv && mask.cv.setBackgroundColor) {
             mask.cv.setBackgroundColor(android.graphics.Color.TRANSPARENT);
         }
-        mask.setDimAmount(0);
-        // 强制 canvas 铺满整屏(否则 draw 出来的框不在可视区)
-        if (mask.cv && mask.cv.layout) {
-            mask.cv.layout(0, 0, SW, SH);
-        }
-        // 关键: setSize 之后必须让根 view 重新测量布局, 否则 canvas 内部仍是 0×0 的旧尺寸,
-        // 后续 invalidate 画出来的东西全落在可视区外(诊断表现为 首帧0×0、之后无新帧)。
-        var mroot = ("getView" in mask) ? mask.getView() : null;
-        if (mroot) {
-            if (mroot.requestLayout) {
-                mroot.requestLayout();
-            }
-            if (mroot.measure) {
-                mroot.measure(
-                    android.view.View.MeasureSpec.makeMeasureSpec(SW, android.view.View.MeasureSpec.EXACTLY),
-                    android.view.View.MeasureSpec.makeMeasureSpec(SH, android.view.View.MeasureSpec.EXACTLY)
-                );
-                if (mroot.layout) {
-                    mroot.layout(0, 0, SW, SH);
+        // 关键: canvas 必须有明确的 LayoutParams 尺寸, 否则内部测量结果为 0×0,
+        // on("draw") 不会被派发、drawRect 也会落在可视区外 → 看不到任何绿框。
+        try {
+            if (mask.cv && mask.cv.getLayoutParams) {
+                var lp = mask.cv.getLayoutParams();
+                if (lp) {
+                    lp.width = SW;
+                    lp.height = SH;
+                    mask.cv.setLayoutParams(lp);
                 }
             }
+        } catch (e2) {
+            log("canvas尺寸设置失败: " + e2);
         }
+        mask.setDimAmount(0);
     } catch (e) {
         log("mask初始化失败: " + e);
     }
@@ -2373,39 +2364,18 @@ function doAnalyze() {
         mask.cv.invalidate();
     } catch (e) {
     }
-    // 对齐原版: 原版此处用的是 floaty.rawWindow(...), 不是 floaty.window(...)
-    // (原字节码中 rawWindow 字符串存在且只出现 1 次, 对应下面 touchFrame 那处)。
-    // 差异要点: floaty.window 返回的 JsWindow 包装类没有 setTouchable 方法,
-    // 调用它会抛 InternalError: Java class "com.stardust.autojs.runtime.api.Floaty$JsWindow"
-    // —— 这正是"开始分析"按钮点了没反应的原因(异常被 try/catch 静默吞掉)。
-    // floaty.rawWindow 返回原始 window 对象, 支持 setPosition/setSize/setTouchable。
-    // 同 mask: 用字符串拼接把真实设备尺寸写进 XML
-    var touchXml = '<frame id="touchFrame" w="' + SW + '" h="' + SH + '" bg="#00000000" />';
-    var touchWin = floaty.rawWindow(new XML(touchXml));  // L2529
-    wins.push(touchWin);  // L2532
-    var tf = touchWin.touchFrame;  // L2539
+    // 关键重构(修复"看不到绿框" + "面板按钮点不动"):
+    // 原实现创建了【两个】全屏悬浮窗 —— mask(画框) 与 touchWin(触摸)。
+    // 后创建的 touchWin 层级更高, 会把 mask 整个盖住 → 绿框画了但看不见;
+    // 同时它又独占整屏触摸, 面板按钮的点击永远传不下去。
+    // 现改为: 触摸监听直接挂在 mask 自己的根 view 上, 全程只有【一个】全屏窗口,
+    // 不存在层级遮挡, 面板按钮的命中也由本层自行处理(见下方 ACTION_UP 分支)。
+    var touchWin = mask;
+    var tf = mask.getView ? mask.getView() : mask.cv;
     try {  // L2533
-        touchWin.setPosition(0, 0);  // L2534
-        touchWin.setSize(SW, SH);  // L2535
-        touchWin.setTouchable(true);  // L2536
-        // 关键(修复面板按钮点不动): Android 上跨 window 传递触摸必须用 FLAG_NOT_TOUCH_MODAL。
-        // 不加这个 flag 时, 本窗口会独占整屏触摸, setOnTouchListener 里 return false
-        // 只在同一条 view 层级内传递, 【不会】跨 window 到信息面板 → "停止分析/关闭"点了没反应。
-        // 加上后, 本窗口范围外的点击可直接落到下层窗口, 面板按钮才可点。
-        // 这里先设全屏大小, 待面板创建后再把 flag 打开(见 showInfoByIndex)。
-        touchWin.setFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-            android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL);
-        // 透明化(同上: 否则这层全屏窗口会白屏遮挡整个界面)
-        touchWin.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-        var tvw = ("getView" in touchWin) ? touchWin.getView() : null;
-        if (tvw && tvw.setBackgroundColor) {
-            tvw.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-        }
-        if (tf && tf.setBackgroundColor) {
-            tf.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-        }
+        mask.setTouchable(true);  // L2536
     } catch (e) {
-        log("touchWin透明化失败: " + e);
+        log("mask触摸层设置失败: " + e);
     }
     try {  // L2540
         tf.setOnTouchListener(function(view, ev) {
