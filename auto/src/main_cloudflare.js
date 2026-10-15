@@ -154,7 +154,10 @@ function 启动主程序() {
 ui.layout(new XML(<drawer id="drawer">
         <vertical>
             <appbar bg="#a52a2a">
-                <toolbar id="toolbar" title="{{mingcheng}} " />
+                <horizontal gravity="center_vertical">
+                    <text id="menuBtn" text="☰" textSize="26sp" textColor="#ffffff" padding="8 14 8 14" />
+                    <toolbar id="toolbar" title="{{mingcheng}} " />
+                </horizontal>
                 {}
             </appbar>
             <viewpager id="viewpager">
@@ -174,6 +177,7 @@ ui.layout(new XML(<drawer id="drawer">
                                     <radio id="dx3" text="时间1" checked="true" />
                                     <radio id="dx2" text="时间2" />
                                     <radio id="dx1" text="时间3" />
+                                    <radio id="dx5" text="本机" />
                                 </radiogroup>
                                 <checkbox id="显示时间" text="显示时间" />
                             </horizontal>
@@ -840,6 +844,9 @@ ui["存档1"].on("click", function() {
             if (ui.dx3.isChecked()) {  // L816
                 files.write("/sdcard/auscript/" + name + ".sj", "3");  // L817
             }
+            if (ui.dx5.isChecked()) {  // L819
+                files.write("/sdcard/auscript/" + name + ".sj", "5");  // L820
+            }
             toast("已保存");  // L822
             return;
         }).show();  // L823
@@ -856,6 +863,9 @@ ui["存档1"].on("click", function() {
             }
             if (ui.dx3.isChecked()) {  // L837
                 files.write("/sdcard/auscript/" + name + ".sj", "3");  // L838
+            }
+            if (ui.dx5.isChecked()) {  // L840
+                files.write("/sdcard/auscript/" + name + ".sj", "5");  // L841
             }
             toast("已保存");  // L843
         }
@@ -1961,17 +1971,19 @@ ui.dx3.on("check", function(checked) {
     }
     return;
 });  // L2264
-// 注: 原「本机」单选框 dx5 已从 UI 移除, 对应监听一并删除, 避免 ui.dx5 为 undefined 中断初始化
-try {
-    ui.toolbar.setupWithDrawer(ui.drawer);  // L2286
-    // 显式设置汉堡按钮点击: 兜底 setupWithDrawer 自带的导航图标点击失效
-    ui.toolbar.setNavigationOnClickListener(function(view) {
-        ui.drawer.openDrawer(3);  // 3 = android.view.Gravity.LEFT
-        return;
-    });
-} catch (e) {
-    toast("左侧菜单初始化失败: " + e.message);
-}  // L2286b
+ui.dx5.on("check", function(checked) {
+    if (checked) {  // L2277 (本机选项: 走 CF服务器 /hqsj.php 兜底, 永不本机)
+        时间通道 = "";  // 走 CF服务器 /hqsj.php 兜底
+        threads.start(function() { 网络校时(); });  // 兜底网络校时
+    }
+    return;
+});  // L2276
+ui.toolbar.setupWithDrawer(ui.drawer);  // L2286
+// 显式左侧菜单按钮: 兜底部分机型不显示导航图标的情况(点击即打开抽屉)
+ui.menuBtn.on("click", function() {
+    ui.drawer.openDrawer(3);  // 3 = android.view.Gravity.LEFT
+    return;
+});  // L2286b
 ui.menu.setDataSource([{title: "布局分析", icon: "@drawable/ic_search_black_48dp", onclick: function() {
     return 布局分析();  // L2297
 }}, {title: "使用说明", icon: "@drawable/ic_settings_black_48dp", onclick: function() {
@@ -2662,25 +2674,29 @@ ui["清除"].on("click", function() {
     return;
 });  // L2953
 ui.autoService.on("check", function(checked) {
-    if (checked) {  // L2963
-        检查敏感应用提醒();  // L2965
-        if (auto.service == null) {  // 未开启时才跳转
-            toast("请前往系统设置 → 无障碍 中开启本软件服务, 开启后返回即可");  // 明确提示
-            try {  // 用原生 Intent 直接跳转, 比 app.startActivity(action) 更稳
-                var intent = new android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS);
-                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
-                context.startActivity(intent);
-            } catch (e) {
-                try {
-                    app.startActivity("accessibility");  // Auto.js 快捷方式兜底
-                } catch (e2) {
-                    toast("跳转无障碍设置失败, 请手动打开: 设置 → 无障碍 → 本软件");
+    try {
+        if (checked) {  // L2963
+            if (auto.service == null) {  // 未开启时才跳转
+                toast("请前往系统设置 → 无障碍 中开启本软件服务, 开启后返回即可");  // 明确提示
+                try {  // 用原生 Intent 直接跳转, 比 app.startActivity(action) 更稳
+                    var intent = new android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS);
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                    context.startActivity(intent);
+                } catch (e) {
+                    try {
+                        app.startActivity("accessibility");  // Auto.js 快捷方式兜底
+                    } catch (e2) {
+                        toast("跳转无障碍设置失败, 请手动打开: 设置 → 无障碍 → 本软件");
+                    }
                 }
             }
+            检查敏感应用提醒();  // 提醒放跳转之后, 避免其异常阻断跳转与提示
         }
-    }
-    if (!checked && auto.service != null) {  // L2972
-        auto.service.disableSelf();  // L2973
+        if (!checked && auto.service != null) {  // L2972
+            auto.service.disableSelf();  // L2973
+        }
+    } catch (e) {
+        toast("无障碍操作出错: " + e.message);  // 兜底提示, 避免静默失败
     }
     return;
 });  // L2961
@@ -5841,6 +5857,9 @@ function 显示脚本文件() {
         }
         if (mode == "3") {  // L7448
             ui.dx3.setChecked(true);
+        }
+        if (mode == "5") {  // L7449
+            ui.dx5.setChecked(true);
         }
     } catch (e) {
     }
