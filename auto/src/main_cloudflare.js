@@ -2041,7 +2041,7 @@ function 布局分析() {  // L2339
             if (Math.abs(event.getRawY() - y) < 50 && Math.abs(event.getRawX() - x) < 50) {  // L2382
                 if (window2.action.text() == "开始分析") {  // L2383
                     threads.start(function() {
-                    var analyzing = true;  // L2385
+                    analyzing = true;  // L2385
                     var currentActivity2 = "";  // L2386
                     try {  // L2387
                         currentActivity2 = currentActivity();  // L2389
@@ -2054,7 +2054,7 @@ function 布局分析() {  // L2339
                 });  // L2384
                 } else {
                     threads.start(function() {
-                    var analyzing = false;  // L2402
+                    analyzing = false;  // L2402
                     window2.action.setText("开始分析");  // L2403
                     stopAnalyzeAndClearFrames();  // L2404
                     return;
@@ -2103,7 +2103,7 @@ function doAnalyze() {
     }
     if (!root) {  // L2441
         toast("❌ 无障碍未开启或目标App不在前台");  // L2442
-        var analyzing = false;  // L2443
+        analyzing = false;  // L2443
         if (window2) {  // L2444
             window2.action.setText("开始分析");
         }
@@ -2509,7 +2509,7 @@ function showInfoByIndex(index) {
         panel.stopBtn.click(function() {
         threads.start(function() {
     if (analyzing) {  // L2801
-        var analyzing = false;  // L2802
+        analyzing = false;  // L2802
         stopAnalyzeAndClearFrames();  // L2803
     } else {
         toast("当前未在分析中");  // L2806
@@ -2522,7 +2522,7 @@ function showInfoByIndex(index) {
         threads.start(function() {
     closePanel();  // L2814
     if (analyzing) {  // L2815
-        var analyzing = false;  // L2816
+        analyzing = false;  // L2816
         if (window2) {  // L2817
             window2.action.setText("开始分析");
         }
@@ -2577,7 +2577,7 @@ function stopAnalyze() {
 
 function cleanupAll() {
     var alive = false;  // L2858
-    var analyzing = false;  // L2859
+    analyzing = false;  // L2859
     try {  // L2860
         events.removeAllListeners("key_down");
     } catch (e) {
