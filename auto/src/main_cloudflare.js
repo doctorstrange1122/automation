@@ -809,10 +809,24 @@ var bbh = bbhv.replace(/\./i, "");  // L762
 var 总代码 = "";  // L763
 var 代码头部 = "";
 var 测试模式 = 0;
-// 对齐原版: startTime/forwardTime 在原版是顶层全局变量, main() 依赖它们;
-// 若只在 runSrt 内用 var 声明, main() 读到 undefined → Date.parse(undefined)=NaN → 开始运行无反应
+// ===== 对齐原版: 以下变量在原版 v3.0.5 中均为顶层全局 =====
+// 缺失全局声明会导致跨函数读写失效(main() 读 e/daske 直接 ReferenceError → 开始运行无反应)
+var e = null;  // 子脚本引擎对象, 由 engines.execScript 赋值; main()/停止分支需读取
+var daske = false;  // 启动后防抖标记, main() 读取
+var 代码尾部 = "";  // a转为代码() 生成, 供代码拼接使用
+var 用户全局代码 = "";  // a转为代码() 累积用户全局代码
+var 已完成线程数 = 0;  // 子线程计数
 var startTime = "";
 var forwardTime = 0;
+// 以下同为原版顶层全局变量, 我源码此前缺失声明或仅在局部声明, 导致跨函数读写失效
+var 悬浮时钟停止 = 0;
+var 线程索引 = 0;
+var mima = "";
+var 悬浮x = 100;
+var 悬浮y = 100;
+var dengdai = 0;
+var 音量加被按下 = false;
+var 音量减被按下 = false;
 function 校时() {
     var thread = threads.start(function() {
     网络校时();  // L770
@@ -2032,22 +2046,29 @@ function 布局分析() {  // L2339
     var x = 0;  // L2366
     var y = 0;
     window2.action.setOnTouchListener(function(view, event) {
+    // 注: 原版同样使用 case event.ACTION_DOWN 写法(字节码中 ACTION_DOWN/UP/MOVE 各出现2次),
+    // 在 Auto.js Pro 下可用, 故保持与原版一致, 不改写为数字常量。
+    var x = 0;  // L2366
+    var y = 0;
+    var window1X = 0;
+    var window1Y = 0;
+    var hasDown = false;
     switch (event.getAction()) {  // L2370
         case event.ACTION_DOWN:
-            var x = event.getRawX();  // L2372
-            var y = event.getRawY();  // L2373
-            var window1X = window2.getX();  // L2374
-            var window1Y = window2.getY();  // L2375
+            x = event.getRawX();  // L2372
+            y = event.getRawY();  // L2373
+            window1X = window2.getX();  // L2374
+            window1Y = window2.getY();  // L2375
+            hasDown = true;
             return true;  // L2376
         case event.ACTION_MOVE:
-            // 防御: MOVE 先于 DOWN 到达时 x/window1X 未初始化会算出 NaN, setPosition 需要 int 会报
-            // "Cannot convert NaN to java.lang.Integer", 这里直接忽略该次事件
-            if (window1X === undefined || window1Y === undefined || x === undefined || y === undefined) {
+            if (!hasDown) {
                 return true;
             }
             window2.setPosition(window1X + (event.getRawX() - x), window1Y + (event.getRawY() - y));  // L2378
             return true;  // L2380
         case event.ACTION_UP:
+            hasDown = false;
             if (Math.abs(event.getRawY() - y) < 50 && Math.abs(event.getRawX() - x) < 50) {  // L2382
                 if (window2.action.text() == "开始分析") {  // L2383
                     threads.start(function() {
@@ -3319,7 +3340,7 @@ function main() {
                 logWithTime("时间差：" + wlsjc + " 延迟：" + 网络延时);  // L3916
             }
             threads.start(function() {
-            var 已完成线程数 = 0;  // L3920
+            已完成线程数 = 0;  // L3920
             输入密码 = 0;  // L3921
             nowTime = getNow();  // L3923
             ycsj = startChecktimeFix - nowTime;  // L3924
@@ -3332,7 +3353,16 @@ function main() {
             if (ui["隐藏日志"].isChecked()) {  // L3934
                 toast("开始执行");  // L3935
             }
-            e.getEngine().emit("jiaobenkgz", "开始执行");  // L3937
+            // 修复: 原代码 e 未声明(ReferenceError)导致执行线程崩溃; 现已补全局声明, 仍加容错防止闪退
+            try {
+                if (e != null) {
+                    e.getEngine().emit("jiaobenkgz", "开始执行");  // L3937
+                } else {
+                    toast("脚本引擎未就绪, 请检查是否已设置步骤代码");
+                }
+            } catch (ex) {
+                logWithTime("启动脚本失败: " + ex);
+            }
             return;
         });  // L3918
             sleep(2000);  // L3940
@@ -3345,7 +3375,7 @@ function main() {
 });  // L3909
     threads.start(function() {
     if (ui["显示时间"].isChecked()) {  // L3960
-        var 悬浮时钟停止 = 1;  // L3961
+        悬浮时钟停止 = 1;  // L3961
         sleep(1000);  // L3962
         悬浮时钟停止 = 0;  // L3963
         悬浮时间();  // L3964
@@ -5123,7 +5153,7 @@ function a转为代码() {
     代码头部 = 代码头部 + "\nfunction multiPointGesture(duration, fingers) {  if (!fingers || fingers.length === 0) {toast(\"❌ 没有手指轨迹数据\");return false;  } var gestureArgs = [duration];  for (var i = 0; i < fingers.length; i++) {var finger = fingers[i];var points = [];points.push(finger.start[0], finger.start[1]);   if (finger.middle && finger.middle.length > 0) {for (var j = 0; j < finger.middle.length; j++) {points.push(finger.middle[j][0], finger.middle[j][1]);  }  } points.push(finger.end[0], finger.end[1]); gestureArgs.push(points);  }\n  try { gesture.apply(null, gestureArgs);return true; } catch (e) {     log(\"❌ 手势执行失败: \" + e);return false; }}\n function simpleMultiGesture(duration) {var fingers = []; for (var i = 1; i < arguments.length; i++) {       var track = arguments[i];    if (!track || track.length < 4) {continue;     } ;  var finger = {start: [track[0], track[1]],  middle: [],  end: [track[track.length - 2], track[track.length - 1]] }; if (track.length > 4) {  for (var j = 2; j < track.length - 2; j += 2) {finger.middle.push([track[j], track[j + 1]]);}} fingers.push(finger);  } return multiPointGesture(duration, fingers);}";  // L6102
     代码头部 = 代码头部 + "\nevents.on(\"say\", function(words){if(words == \"音量减被按下\") { log(\"音量减被按下\");if(运行中==0){zxc()}else{toast(\"已停止运行执行中的任务！\");floaty.closeAll();console.hide();;device.cancelKeepingAwake();;exit()};;}else if (words == \"停止运行\") {toast(\"已停止运行执行中的任务！\");floaty.closeAll();console.hide();;device.cancelKeepingAwake();;exit()};;});setInterval(()=>{}, 1000);";  // L6126
     总代码 = 代码头部 + "\nfunction getNow(){var now=new Date().getTime();return now-wlsjc};\n   console.show(); function zxc() { \n if(运行中==0){ 运行中=1;\n " + 用户全局代码 + "\n " + 总代码 + " \n } }; ";  // L6127
-    var e = engines.execScript("hello world", 总代码);  // L6131
+    e = engines.execScript("hello world", 总代码);  // L6131
     开启监听按键();  // L6139
     return;
 }
@@ -5132,7 +5162,7 @@ function 开启监听按键() {  // L6141
     if (已开启监听按键 == false) {  // L6143
         events.observeKey();  // L6144
         events.onKeyDown("volume_up", function(event) {
-        var 音量加被按下 = true;  // L6147
+        音量加被按下 = true;  // L6147
         event.preventDefault();  // L6149
         if (getNow() - 上次音量加被按下时间 < 2000) {  // L6150
             if (ui.runSrt.getText() == "开始运行") {  // L6152
@@ -5145,7 +5175,7 @@ function 开启监听按键() {  // L6141
         return;
     });  // L6146
         events.onKeyDown("volume_down", function(event) {
-        var 音量减被按下 = true;  // L6173
+        音量减被按下 = true;  // L6173
         if (ui.runSrt.getText() == "开始运行") {  // L6174
         } else {
             e.getEngine().emit("say", "音量减被按下");  // L6177
@@ -5577,7 +5607,7 @@ function 悬浮时间() {
     return;
 });  // L7138
     window2.setPosition(device.width * 0.2, 50);  // L7141
-    var 悬浮时钟停止 = 0;  // L7142
+    悬浮时钟停止 = 0;  // L7142
     var str = formatDate(getNow()).toString();  // L7143
     str = str.substr(9, 3);  // L7144
     var aaaa = 990 - parseInt(str);  // L7145
@@ -6205,7 +6235,7 @@ function zbjt() {
         events.removeAllTouchListeners();  // L7796
         sleep("100");  // L7797
         var 总代码 = "function getScreenCapture(){let Thread=threads.start(function(){if(auto.service!=null){let Allow=textMatches(/(允许|立即开始|统一)/).findOne(10*1000);if(Allow){Allow.click()}}});if(!requestScreenCapture()){return false}else{Thread.interrupt();return true}};if(!getScreenCapture()){toast(\"请求截图失败！无法执行！\");events.broadcast.emit(\"hello\",\"无截图权限\");exit()};function guangbo(){events.on(\"jiaobenkgz\",function(words){if(words==\"开始截图\"){var image=captureScreen();images.save(image, \"/sdcard/screenshot.png\");image.recycle();events.broadcast.emit(\"hello\",\"截图完毕\")}});setInterval(()=>{},1000)};guangbo();";  // L7798
-        var e = engines.execScript("hello world", 总代码);  // L7799
+        e = engines.execScript("hello world", 总代码);  // L7799
         是否有截图权限 = true;  // L7800
     }
     try {  // L7806
@@ -6780,7 +6810,7 @@ function xzztfw() {
         events.removeAllTouchListeners();  // L8596
         sleep("100");  // L8597
         var 总代码 = "function getScreenCapture(){let Thread=threads.start(function(){if(auto.service!=null){let Allow=textMatches(/(允许|立即开始|统一)/).findOne(10*1000);if(Allow){Allow.click()}}});if(!requestScreenCapture()){return false}else{Thread.interrupt();return true}};if(!getScreenCapture()){toast(\"请求截图失败！无法执行！\");events.broadcast.emit(\"hello\",\"无截图权限\");exit()};function guangbo(){events.on(\"jiaobenkgz\",function(words){if(words==\"开始截图\"){var image=captureScreen();images.save(image, \"/sdcard/screenshot.png\");events.broadcast.emit(\"hello\",\"截图完毕\")}});setInterval(()=>{},1000)};guangbo();";  // L8598
-        var e = engines.execScript("hello world", 总代码);  // L8599
+        e = engines.execScript("hello world", 总代码);  // L8599
         是否有截图权限 = true;  // L8600
     }
     if (是否有截图权限) {  // L8603
