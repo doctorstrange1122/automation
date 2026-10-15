@@ -154,10 +154,7 @@ function 启动主程序() {
 ui.layout(new XML(<drawer id="drawer">
         <vertical>
             <appbar bg="#a52a2a">
-                <horizontal gravity="center_vertical">
-                    <text id="menuBtn" text="☰" textSize="26sp" textColor="#ffffff" padding="8 14 8 14" />
-                    <toolbar id="toolbar" title="{{mingcheng}} " />
-                </horizontal>
+                <toolbar id="toolbar" title="{{mingcheng}} " />
                 {}
             </appbar>
             <viewpager id="viewpager">
@@ -843,9 +840,6 @@ ui["存档1"].on("click", function() {
             if (ui.dx3.isChecked()) {  // L816
                 files.write("/sdcard/auscript/" + name + ".sj", "3");  // L817
             }
-            if (ui.dx5.isChecked()) {  // L819
-                files.write("/sdcard/auscript/" + name + ".sj", "5");  // L820
-            }
             toast("已保存");  // L822
             return;
         }).show();  // L823
@@ -862,9 +856,6 @@ ui["存档1"].on("click", function() {
             }
             if (ui.dx3.isChecked()) {  // L837
                 files.write("/sdcard/auscript/" + name + ".sj", "3");  // L838
-            }
-            if (ui.dx5.isChecked()) {  // L840
-                files.write("/sdcard/auscript/" + name + ".sj", "5");  // L841
             }
             toast("已保存");  // L843
         }
@@ -1970,19 +1961,17 @@ ui.dx3.on("check", function(checked) {
     }
     return;
 });  // L2264
-ui.dx5.on("check", function(checked) {
-    if (checked) {  // L2277 (本机选项已从 UI 移除, 此处仅兜底, 永不本机)
-        时间通道 = "";  // 走 CF服务器 /hqsj.php 兜底
-        threads.start(function() { 网络校时(); });  // 兜底网络校时
-    }
-    return;
-});  // L2276
-ui.toolbar.setupWithDrawer(ui.drawer);  // L2286
-// 显式左侧菜单按钮: 兜底部分机型不显示导航图标的情况(点击即打开抽屉)
-ui.menuBtn.on("click", function() {
-    ui.drawer.openDrawer(3);  // 3 = android.view.Gravity.LEFT
-    return;
-});  // L2286b
+// 注: 原「本机」单选框 dx5 已从 UI 移除, 对应监听一并删除, 避免 ui.dx5 为 undefined 中断初始化
+try {
+    ui.toolbar.setupWithDrawer(ui.drawer);  // L2286
+    // 显式设置汉堡按钮点击: 兜底 setupWithDrawer 自带的导航图标点击失效
+    ui.toolbar.setNavigationOnClickListener(function(view) {
+        ui.drawer.openDrawer(3);  // 3 = android.view.Gravity.LEFT
+        return;
+    });
+} catch (e) {
+    toast("左侧菜单初始化失败: " + e.message);
+}  // L2286b
 ui.menu.setDataSource([{title: "布局分析", icon: "@drawable/ic_search_black_48dp", onclick: function() {
     return 布局分析();  // L2297
 }}, {title: "使用说明", icon: "@drawable/ic_settings_black_48dp", onclick: function() {
@@ -5852,9 +5841,6 @@ function 显示脚本文件() {
         }
         if (mode == "3") {  // L7448
             ui.dx3.setChecked(true);
-        }
-        if (mode == "5") {  // L7449
-            ui.dx5.setChecked(true);
         }
     } catch (e) {
     }
