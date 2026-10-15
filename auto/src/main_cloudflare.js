@@ -2102,7 +2102,7 @@ function 布局分析() {  // L2339
                 if (window2.action.text() == "开始分析") {  // L2383
                     threads.start(function() {
                     analyzing = true;  // L2385
-                    var currentActivity2 = "";  // L2386
+                    currentActivity2 = "";  // L2386  // 全局赋值(原版为顶层全局, showInfoByIndex 需读取)
                     try {  // L2387
                         currentActivity2 = currentActivity();  // L2389
                     } catch (e) {
@@ -2153,6 +2153,7 @@ var window2 = null;  // L2423
 var wins = [];  // L2424
 var panel = null;  // L2425
 var lastTouchMs = 0;  // L2426
+var currentActivity2 = "";  // 当前Activity, 布局分析开始时赋值 → showInfoByIndex 面板首行读取
 var 面板区域 = null;   // 面板在屏幕上的矩形, 用于让全屏触摸层在面板区域放行点击
 var nodesGlobal = [];  // L2428
 var highlightIndex = -1;  // L2429
@@ -2162,6 +2163,15 @@ var OFFSET_Y = -设备高度偏移值;  // L2434
 function doAnalyze() {
     if (!analyzing) {  // L2437
         return;
+    }
+    // 补记当前 Activity: 原版在按钮点击时抓一次存到全局, 这里兜底再抓一次,
+    // 避免 currentActivity2 为空导致面板首行空白
+    if (currentActivity2 == "" || currentActivity2 == null) {
+        try {
+            currentActivity2 = currentActivity();
+        } catch (e) {
+            currentActivity2 = "暂不支持";
+        }
     }
     var root = null;  // L2439
     try {  // L2440
@@ -2205,8 +2215,11 @@ function doAnalyze() {
     }
     var SW = device.width;  // L2474
     var SH = device.height;
-    var mask = floaty.rawWindow(new XML(<frame w="*" h="*" bg="#00000000">
-            <canvas id="cv" w="*" h="*" />
+    // 关键: rawWindow 没有 layout 上下文, XML 里的 w="*" h="*" 不会撑满(与 floaty.window 不同),
+    // canvas 实际尺寸会是 0 → drawRect 全部落在可视区外 → 看不到任何节点框。
+    // 因此这里直接用设备像素尺寸; 原版写 w="*", 但那是 rawWindow 同样存在的隐患。
+    var mask = floaty.rawWindow(new XML(<frame w="320" h="240" bg="#00000000">
+            <canvas id="cv" w="320" h="240" />
         </frame>));  // L2477
     wins.push(mask);  // L2482
     try {  // L2483
@@ -2224,8 +2237,12 @@ function doAnalyze() {
             mask.cv.setBackgroundColor(android.graphics.Color.TRANSPARENT);
         }
         mask.setDimAmount(0);
+        // 强制 canvas 铺满整屏(否则 draw 出来的框不在可视区)
+        if (mask.cv && mask.cv.layout) {
+            mask.cv.layout(0, 0, SW, SH);
+        }
     } catch (e) {
-        log("mask透明化失败: " + e);
+        log("mask初始化失败: " + e);
     }
     maskCanvas = mask.cv;  // L2484
     var paintGreen = new Paint();  // L2486
@@ -2279,7 +2296,7 @@ function doAnalyze() {
     // 调用它会抛 InternalError: Java class "com.stardust.autojs.runtime.api.Floaty$JsWindow"
     // —— 这正是"开始分析"按钮点了没反应的原因(异常被 try/catch 静默吞掉)。
     // floaty.rawWindow 返回原始 window 对象, 支持 setPosition/setSize/setTouchable。
-    var touchWin = floaty.rawWindow(new XML(<frame id="touchFrame" w="*" h="*" bg="#00000000" />));  // L2529
+    var touchWin = floaty.rawWindow(new XML(<frame id="touchFrame" w="320" h="240" bg="#00000000" />));  // L2529
     wins.push(touchWin);  // L2532
     var tf = touchWin.touchFrame;  // L2539
     try {  // L2533
@@ -2461,6 +2478,17 @@ function showInfoByIndex(index) {
     try {  // L2651
         var pw = Math.max(340, Math.min(device.width * 4 / 5, device.width));  // L2653
         var ph = Math.max(750, Math.min(device.height * 0.83, device.height));  // L2655
+        var panelX = Math.round((device.width - pw) / 2);
+        var panelY = Math.round(device.height * 0.015);
+        // 关键顺序: 面板区域必须在 floaty.window 之前登记。
+        // 若窗口创建抛异常(面板创建失败), 触摸层的放行区域依然有效,
+        // 否则全屏触摸层会独占所有点击 → 整屏锁死、只能杀后台。
+        面板区域 = {
+            l: panelX - 12,
+            t: panelY - 12,
+            r: panelX + pw + 12,
+            b: panelY + ph + 12
+        };
         panel = floaty.window(new XML(<vertical bg="#DDFFFFFF" padding="8" margin="0">
 
                 <text id="prop_activity" textSize="15sp" textColor="#FF0000AA" clickable="true" />
@@ -2495,16 +2523,7 @@ function showInfoByIndex(index) {
                     <button id="bk" text="关闭" w="0" layout_weight="1" h="48" bg="#FF888888" textColor="#FFFFFFFF" textSize="16sp" marginLeft="8" />
                 </horizontal>
             </vertical>));  // L2657
-        var panelX = Math.round((device.width - pw) / 2);
-        var panelY = Math.round(device.height * 0.015);
         panel.setPosition(panelX, panelY);  // L2693
-        // 记录面板矩形, 供全屏触摸层做"区域放行"(见 doAnalyze 内 ACTION_DOWN 分支)
-        面板区域 = {
-            l: panelX - 12,
-            t: panelY - 12,
-            r: panelX + pw + 12,
-            b: panelY + ph + 12
-        };
         ui.run(function() {
         panel.prop_activity.setText("当前Activity: " + currentActivity2);  // L2696
         panel.prop_depth.setText("控件层级: " + depth);  // L2697
@@ -2668,7 +2687,36 @@ function showInfoByIndex(index) {
         return;
     });  // L2812
     } catch (e) {
-        toast("面板创建失败: " + e);  // L2831
+        // 面板创建失败: 必须立即退出分析并拆掉全屏触摸层, 否则 touchWin 仍覆盖全屏且
+        // 独占所有点击(面板不存在, 放行区域也无从触发) → 整屏锁死、只能杀后台。
+        toast("面板创建失败: " + e + "\n已自动退出布局分析", "long");
+        log("面板创建失败: " + e);
+        analyzing = false;
+        面板区域 = null;
+        try {
+            if (panel) {
+                panel.close();
+                panel = null;
+            }
+        } catch (e2) {
+        }
+        for (var ci = 0; ci < wins.length; ci++) {
+            try {
+                wins[ci].close();
+                continue;
+            } catch (e3) {
+            }
+        }
+        wins = [];
+        maskCanvas = null;
+        if (window2) {
+            try {
+                window2.close();
+            } catch (e4) {
+            }
+            window2 = null;
+        }
+        return;
     }
     return;
 }
@@ -2690,6 +2738,7 @@ function stopAnalyzeAndClearFrames() {
     }
     wins = [];  // L2844
     maskCanvas = null;  // L2845
+    面板区域 = null;     // 全屏触摸层已拆除, 清除放行区域
     closePanel();  // L2846
     return;
 }
@@ -3306,6 +3355,8 @@ var 已开启监听按键 = false;  // L3525
 var tishishijian = "";   // 计划执行提示代码, main() 赋值 → a转为代码() 拼接进代码头部
 var sjpyz = 0;           // 点击随机偏移像素, runSrt.click 赋值 → a转为代码() 读取
 var 点击时长 = 10;       // 长按时长ms, runSrt.click 赋值 → a转为代码() 读取
+var sjyssj1 = 0;         // 随机延迟下限ms, runSrt.click 赋值 → sjys() 读取
+var sjyssj2 = 0;         // 随机延迟上限ms, runSrt.click 赋值 → sjys() 读取
 var arrz原数组 = [];     // 步骤记录切分数组(原为隐式全局, 显式声明避免 StrictMode 下报错)
 var arrz = [];           // 步骤数组(同上, a转为代码() 内多次赋值)
 ui.runSrt.click(function() {
