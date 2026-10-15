@@ -49,7 +49,15 @@ function act_请求(url) {
     var r = { done: false, ok: false, msg: "" };
     threads.start(function() {
         try {
-            var res = http.get(url, { headers: {} }).body.string();
+            // 优化: 原版 http.get 无超时, 网络不通时会挂到系统默认超时(可能十几秒),
+            // 叠加外层 30 秒轮询 → 用户感觉"卡死"。这里显式给 connect/read/writeTimeout。
+            var res = http.get(url, {
+                headers: {},
+                timeout: 8000,
+                connectTimeout: 5000,
+                readTimeout: 8000,
+                writeTimeout: 5000
+            }).body.string();
             if (res.indexOf("<ok>") > -1) { r.ok = true; }
             else { r.msg = act_取中间(res, "<sb>", "<") || "激活码无效"; }
         } catch (e) {
@@ -57,8 +65,9 @@ function act_请求(url) {
         }
         r.done = true;
     });
+    // 优化: 轮询上限 60×500ms=30 秒 → 20×250ms=5 秒; 配合上面的 8 秒网络超时足够
     var n = 0;
-    while (!r.done && n < 60) { sleep(500); n++; }
+    while (!r.done && n < 20) { sleep(250); n++; }
     if (!r.done) { r.msg = "连接激活服务器超时"; }
     return r;
 }
@@ -69,10 +78,12 @@ function act_校验(码) {   // lx=29 启动校验
 function act_激活(码) {   // lx=28 首次激活(绑定设备)
     return act_请求(CF服务器 + "/lx=28?IMEI=" + ACT_设备 + "&sg=0&ys=" + 码 + "&password=" + 码 + "&bbh=" + ACT_版本 + "&id=1&token=" + CF令牌 + "&app=" + CF应用标识);
 }
-function act_通过(码) {   // 先校验; 未绑定则转为激活
-    var r = act_校验(码);
-    if (!r.ok) { r = act_激活(码); }
-    return r;
+function act_通过(码) {   // 优化: 单次请求
+    // 原实现先 lx=29 校验、失败再 lx=28 激活 —— 两次串行网络请求, Cloudflare 冷启动本身
+    // 就要 2~5 秒, 失败场景更是 10 秒起步, 这是"校验特别慢"的根因。
+    // lx=28 已覆盖 lx=29 的全部校验能力(码格式/不存在/作废/换机/应用不符/解绑设备),
+    // 且"已绑定本机"的码同样返回 <ok>。故此处只发一次 lx=28 即可完成"校验+激活"。
+    return act_激活(码);
 }
 
 // ==================== 激活模块结束 ====================
@@ -2043,9 +2054,17 @@ function 布局分析() {  // L2339
     } catch (e) {
     }
     window2.setPosition(100, device.height * 0.4);  // L2365
+    // 对齐原版: 原版 threads.start 内的悬浮按钮函数开头有一句 setInterval(()=>{},1000),
+    // 作用是让线程的事件循环持续存活。原字节码中该源码明文可见:
+    //   var window1=floaty.window(<button id="action" .../>); var zjdbt=window1.action.text();
+    //   setInterval(()=>{},1000); ... window1.action.setOnTouchListener(...)
+    // 缺失这一句 → 下面 setOnTouchListener 注册完函数就 return, 线程结束、触摸回调失效,
+    // 表现为"开始分析"按钮点不动、拖不动、只能杀后台才能关掉。
+    setInterval(function() {}, 1000);  // 空转保活
     var x = 0;  // L2366
     var y = 0;
     window2.action.setOnTouchListener(function(view, event) {
+    try {
     // 注: 原版同样使用 case event.ACTION_DOWN 写法(字节码中 ACTION_DOWN/UP/MOVE 各出现2次),
     // 在 Auto.js Pro 下可用, 故保持与原版一致, 不改写为数字常量。
     var x = 0;  // L2366
@@ -2095,6 +2114,12 @@ function 布局分析() {  // L2339
             return true;  // L2409
         default:
             return true;  // L2411
+    }
+    } catch (err) {
+        // 诊断: 触摸回调里若抛异常, 原版会静默吞掉 → 用户只看到"点了没反应"。
+        // 这里显式提示, 便于定位真实失败点。
+        toast("布局分析触摸异常: " + err);
+        return true;
     }
 });  // L2369
     return;
@@ -3313,7 +3338,16 @@ ui.runSrt.click(function() {
 var 监听函数已运行 = false;  // L3779
 var 上次音量加被按下时间 = 0;  // L3793
 function main() {
+    // 诊断(不改业务逻辑): main() 原实现完全静默——若时间解析失败(Date.parse→NaN),
+    // 下方 setInterval 的 `startChecktimeFix - nowTime < 50000` 恒为 false, 永��进入执行分支,
+    // 用户只看到按钮文字变成"停止运行"却毫无其他变化, 且提示 toast 被"隐藏日志"门控看不见。
+    // 此处只在异常场景给出可见提示, 正常路径与原版完全一致。
     var startChecktime = new Date(Date.parse(startTime)).getTime();  // L3838
+    if (isNaN(startChecktime)) {
+        toast("启动失败: 时间格式无法解析 = " + startTime);
+        logWithTime("main(): startTime 无法解析, startTime=" + startTime + " forwardTime=" + forwardTime);
+        return;
+    }
     var startChecktimeFix = startChecktime - forwardTime;  // L3840
     var nowTime = getNow();  // L3846
     if (nowTime > startChecktimeFix - 2000) {  // L3847
@@ -3329,7 +3363,14 @@ function main() {
         toast("计划于" + 分后 + "分" + 秒后 + "秒后执行");  // L3886
     }
     var ks = 0;  // L3899
-    a转为代码();  // L3901
+    // 诊断: a转为代码() 抛异常时 threads.start(main) 会静默死掉, 用户完全看不到原因
+    try {
+        a转为代码();  // L3901
+    } catch (err2) {
+        toast("代码转换失败: " + err2);
+        logWithTime("a转为代码()异常: " + err2);
+        return;
+    }
     threads.start(function() {
     var z = setInterval(function() {
     var nowTime = getNow();  // L3911
@@ -3362,6 +3403,7 @@ function main() {
                 }
             } catch (ex) {
                 logWithTime("启动脚本失败: " + ex);
+                toast("启动脚本失败: " + ex);
             }
             return;
         });  // L3918
