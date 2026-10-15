@@ -154,7 +154,10 @@ function 启动主程序() {
 ui.layout(new XML(<drawer id="drawer">
         <vertical>
             <appbar bg="#a52a2a">
-                <toolbar id="toolbar" title="{{mingcheng}} " />
+                <horizontal gravity="center_vertical">
+                    <text id="menuBtn" text="☰" textSize="26sp" textColor="#ffffff" padding="8 14 8 14" />
+                    <toolbar id="toolbar" title="{{mingcheng}} " />
+                </horizontal>
                 {}
             </appbar>
             <viewpager id="viewpager">
@@ -1975,6 +1978,11 @@ ui.dx5.on("check", function(checked) {
     return;
 });  // L2276
 ui.toolbar.setupWithDrawer(ui.drawer);  // L2286
+// 显式左侧菜单按钮: 兜底部分机型不显示导航图标的情况(点击即打开抽屉)
+ui.menuBtn.on("click", function() {
+    ui.drawer.openDrawer(3);  // 3 = android.view.Gravity.LEFT
+    return;
+});  // L2286b
 ui.menu.setDataSource([{title: "布局分析", icon: "@drawable/ic_search_black_48dp", onclick: function() {
     return 布局分析();  // L2297
 }}, {title: "使用说明", icon: "@drawable/ic_settings_black_48dp", onclick: function() {
