@@ -2155,11 +2155,19 @@ var panel = null;  // L2425
 var lastTouchMs = 0;  // L2426
 var currentActivity2 = "";  // 当前Activity, 布局分析开始时赋值 → showInfoByIndex 面板首行读取
 var 面板区域 = null;   // 面板在屏幕上的矩形, 用于让全屏触摸层在面板区域放行点击
+var 面板按钮 = null;   // 面板底部"停止分析/关闭"按钮的屏幕矩形, 由触摸层自行命中处理
 var nodesGlobal = [];  // L2428
 var highlightIndex = -1;  // L2429
 var maskCanvas = null;  // L2430
 var lastInvalidateTime = 0;  // L2431
 var OFFSET_Y = -设备高度偏移值;  // L2434
+function 命中矩形(rect, x, y) {
+    if (!rect) {
+        return false;
+    }
+    return x >= rect.l && x <= rect.r && y >= rect.t && y <= rect.b;
+}
+
 function doAnalyze() {
     if (!analyzing) {  // L2437
         return;
@@ -2215,12 +2223,14 @@ function doAnalyze() {
     }
     var SW = device.width;  // L2474
     var SH = device.height;
-    // 关键: rawWindow 没有 layout 上下文, XML 里的 w="*" h="*" 不会撑满(与 floaty.window 不同),
-    // canvas 实际尺寸会是 0 → drawRect 全部落在可视区外 → 看不到任何节点框。
-    // 因此这里直接用设备像素尺寸; 原版写 w="*", 但那是 rawWindow 同样存在的隐患。
-    var mask = floaty.rawWindow(new XML(<frame w="320" h="240" bg="#00000000">
-            <canvas id="cv" w="320" h="240" />
-        </frame>));  // L2477
+    // 关键修复(无绿框的根因): rawWindow 的 XML 必须用【字符串拼接】才能拿到真实设备尺寸。
+    // Auto.js 的 XML 字面量(<frame .../>)不接受 JS 变量, 只能写死字面量;
+    // 原版写 w="*", 但 rawWindow 没有 layout 上下文, "*" 不会被解析 → canvas 尺寸为 0
+    // → drawRect 全部落在可视区外 → 一根框都看不到。
+    var maskXml = '<frame w="' + SW + '" h="' + SH + '" bg="#00000000">' +
+        '<canvas id="cv" w="' + SW + '" h="' + SH + '" />' +
+        '</frame>';
+    var mask = floaty.rawWindow(new XML(maskXml));  // L2477
     wins.push(mask);  // L2482
     try {  // L2483
         mask.setPosition(0, 0);
@@ -2296,13 +2306,22 @@ function doAnalyze() {
     // 调用它会抛 InternalError: Java class "com.stardust.autojs.runtime.api.Floaty$JsWindow"
     // —— 这正是"开始分析"按钮点了没反应的原因(异常被 try/catch 静默吞掉)。
     // floaty.rawWindow 返回原始 window 对象, 支持 setPosition/setSize/setTouchable。
-    var touchWin = floaty.rawWindow(new XML(<frame id="touchFrame" w="320" h="240" bg="#00000000" />));  // L2529
+    // 同 mask: 用字符串拼接把真实设备尺寸写进 XML
+    var touchXml = '<frame id="touchFrame" w="' + SW + '" h="' + SH + '" bg="#00000000" />';
+    var touchWin = floaty.rawWindow(new XML(touchXml));  // L2529
     wins.push(touchWin);  // L2532
     var tf = touchWin.touchFrame;  // L2539
     try {  // L2533
         touchWin.setPosition(0, 0);  // L2534
         touchWin.setSize(SW, SH);  // L2535
         touchWin.setTouchable(true);  // L2536
+        // 关键(修复面板按钮点不动): Android 上跨 window 传递触摸必须用 FLAG_NOT_TOUCH_MODAL。
+        // 不加这个 flag 时, 本窗口会独占整屏触摸, setOnTouchListener 里 return false
+        // 只在同一条 view 层级内传递, 【不会】跨 window 到信息面板 → "停止分析/关闭"点了没反应。
+        // 加上后, 本窗口范围外的点击可直接落到下层窗口, 面板按钮才可点。
+        // 这里先设全屏大小, 待面板创建后再把 flag 打开(见 showInfoByIndex)。
+        touchWin.setFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL);
         // 透明化(同上: 否则这层全屏窗口会白屏遮挡整个界面)
         touchWin.setBackgroundColor(android.graphics.Color.TRANSPARENT);
         var tvw = ("getView" in touchWin) ? touchWin.getView() : null;
@@ -2330,6 +2349,34 @@ function doAnalyze() {
                 lastTouchMs = now;  // L2546
                 var rx = ev.getRawX ? ev.getX() : ev.getRawX();  // L2548
                 var ry = ev.getRawY ? ev.getY() : ev.getRawY();  // L2549
+                // 优先判定: 是否点中了面板底部的"停止分析/关闭"按钮。
+                // Android 上本全屏触摸层独占点击, 事件无法跨 window 送达面板控件,
+                // 因此在这里自行命中并直接执行动作 —— 保证退出按钮永远可用, 不会锁死整屏。
+                if (面板按钮 && 命中矩形(面板按钮.停止, rx, ry)) {
+                    threads.start(function() {
+                        analyzing = false;
+                        stopAnalyzeAndClearFrames();
+                        toast("已停止分析");
+                        return;
+                    });
+                    return true;
+                }
+                if (面板按钮 && 命中矩形(面板按钮.关闭, rx, ry)) {
+                    threads.start(function() {
+                        analyzing = false;
+                        if (window2) {
+                            window2.action.setText("开始分析");
+                        }
+                        stopAnalyzeAndClearFrames();
+                        toast("已关闭画框");
+                        return;
+                    });
+                    return true;
+                }
+                // 点在面板其他位置: 不做节点选择, 也不吞掉界面(交给系统处理)
+                if (面板区域 && 命中矩形(面板区域, rx, ry)) {
+                    return true;
+                }
                 threads.start(function() {
             processTouch(rx, ry);  // L2552
             return;
@@ -2410,6 +2457,7 @@ function processTouch(rx, ry) {
 
 function closePanel() {
     面板区域 = null;   // 面板已关闭, 取消触摸层放行区域
+    面板按钮 = null;   // 按钮矩形同步失效
     ui.run(function() {
     try {  // L2598
         if (panel) {
@@ -2488,6 +2536,23 @@ function showInfoByIndex(index) {
             t: panelY - 12,
             r: panelX + pw + 12,
             b: panelY + ph + 12
+        };
+        // 底部两个按钮(停止分析 / 关闭)的屏幕矩形。
+        // Android 上全屏触摸层会独占点击, 事件无法跨 window 传给面板控件,
+        // 因此这里记录按钮位置, 由全屏触摸层自己判断命中并直接执行对应动作,
+        // 保证"停止分析/关闭"任何时候都点得动、且不会锁死整屏。
+        var btnH = Math.round(48 * device.density);
+        var btnW = Math.round((pw - 32 - 8) / 2);
+        var btnY = panelY + Math.round(ph * 0.86);
+        面板按钮 = {
+            停止: {
+                l: panelX + 8, t: btnY - btnH - 10,
+                r: panelX + 8 + btnW, b: btnY + 10
+            },
+            关闭: {
+                l: panelX + 8 + btnW + 8, t: btnY - btnH - 10,
+                r: panelX + pw, b: btnY + 10
+            }
         };
         panel = floaty.window(new XML(<vertical bg="#DDFFFFFF" padding="8" margin="0">
 
@@ -2693,6 +2758,7 @@ function showInfoByIndex(index) {
         log("面板创建失败: " + e);
         analyzing = false;
         面板区域 = null;
+        面板按钮 = null;
         try {
             if (panel) {
                 panel.close();
@@ -2739,6 +2805,7 @@ function stopAnalyzeAndClearFrames() {
     wins = [];  // L2844
     maskCanvas = null;  // L2845
     面板区域 = null;     // 全屏触摸层已拆除, 清除放行区域
+    面板按钮 = null;
     closePanel();  // L2846
     return;
 }
