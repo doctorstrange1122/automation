@@ -3209,7 +3209,9 @@ ui.runSrt.click(function() {
         return;  // L3685
     }
     if (ui.runSrt.getText().toString() === "开始运行") {  // L3687
-        if (激活 == false) {  // L3688
+        // 修复(最小改动): 原判断的"激活"是原包遗留变量, 需 qybyjh==1 才会置 true, 而 qybyjh 恒为 false
+        // → 恒进此分支 → 点"开始运行"必然提示"初始化失败"。改用实际生效的 激活完成标志(激活成功时置 true)。
+        if (激活完成标志 != true) {  // L3688
             toast("初始化失败，请切换网络重试，实在不行再联系管理员：童話星辰 767187006");  // L3693
             device.cancelKeepingAwake();  // L3698
             return;  // L3699
