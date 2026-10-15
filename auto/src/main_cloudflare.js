@@ -2061,32 +2061,41 @@ function 布局分析() {  // L2339
     // 缺失这一句 → 下面 setOnTouchListener 注册完函数就 return, 线程结束、触摸回调失效,
     // 表现为"开始分析"按钮点不动、拖不动、只能杀后台才能关掉。
     setInterval(function() {}, 1000);  // 空转保活
-    var x = 0;  // L2366
-    var y = 0;
-    window2.action.setOnTouchListener(function(view, event) {
-    try {
-    // 注: 原版同样使用 case event.ACTION_DOWN 写法(字节码中 ACTION_DOWN/UP/MOVE 各出现2次),
-    // 在 Auto.js Pro 下可用, 故保持与原版一致, 不改写为数字常量。
+    // 注: 拖动状态量必须声明在回调外部。原代码把它们放在 setOnTouchListener 的回调体内,
+    // 每来一次事件就重新初始化 → ACTION_MOVE 里 hasDown 恒为 false, 永远走不到 setPosition,
+    // 表现为"拖不动"。原版同样是回调外声明(var x=0,y=0; var window1X,window1Y;)。
     var x = 0;  // L2366
     var y = 0;
     var window1X = 0;
     var window1Y = 0;
     var hasDown = false;
-    switch (event.getAction()) {  // L2370
-        case event.ACTION_DOWN:
+    // 诊断: 记录触摸是否真的送达。ACTION 常量在 Rhino 下可能取不到静态字段值,
+    // 此时 switch 一个 case 都不匹配, 回调静默返回 → 用户看到"点了没反应"。
+    // 用整数动作码分支兜底, 并把实际动作码写入 window2 的标签, 便于确认。
+    window2.action.setOnTouchListener(function(view, event) {
+    try {
+    var act = event.getAction();  // 0=DOWN 1=UP 2=MOVE
+    var ACT_DOWN = 0, ACT_UP = 1, ACT_MOVE = 2;
+    // 诊断: 首次收到触摸时提示一次, 用于确认事件是否真的送达悬浮窗
+    if (!window2._已确认触摸) {
+        window2._已确认触摸 = true;
+        toast("触摸已收到, 动作码=" + act);
+    }
+    switch (act) {  // L2370
+        case ACT_DOWN:
             x = event.getRawX();  // L2372
             y = event.getRawY();  // L2373
             window1X = window2.getX();  // L2374
             window1Y = window2.getY();  // L2375
             hasDown = true;
             return true;  // L2376
-        case event.ACTION_MOVE:
+        case ACT_MOVE:
             if (!hasDown) {
                 return true;
             }
             window2.setPosition(window1X + (event.getRawX() - x), window1Y + (event.getRawY() - y));  // L2378
             return true;  // L2380
-        case event.ACTION_UP:
+        case ACT_UP:
             hasDown = false;
             if (Math.abs(event.getRawY() - y) < 50 && Math.abs(event.getRawX() - x) < 50) {  // L2382
                 if (window2.action.text() == "开始分析") {  // L2383
@@ -3230,6 +3239,14 @@ function getNow() {
 }
 
 var 已开启监听按键 = false;  // L3525
+// ===== 对齐原版: 补齐被跨函数读取却只在局部 var 声明的变量 =====
+// 原版这三个均为顶层全局。若只在 runSrt.click / main 内 var, 则 a转为代码() 读取时
+// 抛 ReferenceError("tishishijian" is not defined), 表现为点"开始运行"后完全无反应。
+var tishishijian = "";   // 计划执行提示代码, main() 赋值 → a转为代码() 拼接进代码头部
+var sjpyz = 0;           // 点击随机偏移像素, runSrt.click 赋值 → a转为代码() 读取
+var 点击时长 = 10;       // 长按时长ms, runSrt.click 赋值 → a转为代码() 读取
+var arrz原数组 = [];     // 步骤记录切分数组(原为隐式全局, 显式声明避免 StrictMode 下报错)
+var arrz = [];           // 步骤数组(同上, a转为代码() 内多次赋值)
 ui.runSrt.click(function() {
     if (!floaty.checkPermission()) {  // L3585
         toast("请先给悬浮窗权限！");  // L3586
@@ -3239,11 +3256,11 @@ ui.runSrt.click(function() {
     startTime = ui.startTime.getText().toString();  // L3631  // 全局赋值(对齐原版), 供 main() 读取
     var sjyssj1 = parseInt(ui["随机延迟时间1"].getText());  // L3632
     var sjyssj2 = parseInt(ui["随机延迟时间2"].getText());  // L3633
-    var sjpyz = parseInt(ui["随机偏移值"].getText());  // L3634
+    var sjpyz = parseInt(ui["随机偏移值"].getText());  // L3634  // 改为全局赋值(原版为顶层全局, a转为代码() 需读取)
     forwardTime = parseInt(ui.forwardTime.getText());  // L3637  // 全局赋值(对齐原版), 供 main() 读取
     var 需点击次数 = parseInt(ui["次数"].getText());  // L3638
     var 时间间隔 = parseInt(ui["时间间隔"].getText());  // L3639
-    var 点击时长 = parseInt(ui["点击时长"].getText());  // L3640
+    点击时长 = parseInt(ui["点击时长"].getText());  // L3640  // 改为全局赋值(原版为顶层全局, a转为代码() 需读取)
     storage.put("随机延迟时间1", sjyssj1);  // L3653
     storage.put("随机延迟时间2", sjyssj2);  // L3654
     storage.put("随机偏移值", sjpyz);  // L3655
@@ -3358,7 +3375,7 @@ function main() {
     var 分后 = parseInt(ycsj / 60000);  // L3876
     var 秒后 = ycsj - 分后 * 60000;  // L3877
     秒后 = parseInt(秒后 / 1000);  // L3878
-    var tishishijian = "logWithTime(\"计划于" + 分后 + "分" + 秒后 + "秒后执行\");";  // L3882
+    tishishijian = "logWithTime(\"计划于" + 分后 + "分" + 秒后 + "秒后执行\");";  // L3882  // 改为全局赋值(原版为顶层全局)
     if (ui["隐藏日志"].isChecked()) {  // L3885
         toast("计划于" + 分后 + "分" + 秒后 + "秒后执行");  // L3886
     }
