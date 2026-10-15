@@ -2223,53 +2223,18 @@ function doAnalyze() {
     }
     var SW = device.width;  // L2474
     var SH = device.height;
-    // 关键修复(无绿框的根因): rawWindow 的 XML 必须用【字符串拼接】才能拿到真实设备尺寸。
-    // Auto.js 的 XML 字面量(<frame .../>)不接受 JS 变量, 只能写死字面量;
-    // 原版写 w="*", 但 rawWindow 没有 layout 上下文, "*" 不会被解析 → canvas 尺寸为 0
-    // → drawRect 全部落在可视区外 → 一根框都看不到。
-    var maskXml = '<frame w="' + SW + '" h="' + SH + '" bg="#00000000">' +
-        '<canvas id="cv" w="' + SW + '" h="' + SH + '" />' +
-        '</frame>';
-    var mask = floaty.rawWindow(new XML(maskXml));  // L2477
+    // 保持原版写法: 用 XML 字面量 w="*" h="*"。
+    // 前几轮改成字符串拼接(""+SW+")是错的 —— Auto.js 对 new XML(字符串) 与 XML 字面量
+    // 走不同的解析路径, 拼接出来的字符串解析后 canvas 拿不到正确尺寸 → on("draw") 不触发。
+    // 原版就是 w="*", 在本机(华为Mate80 Pro Max)能正常显示绿框。
+    var mask = floaty.rawWindow(new XML(<frame w="*" h="*" bg="#00000000">
+            <canvas id="cv" w="*" h="*" />
+        </frame>));  // L2477
     wins.push(mask);  // L2482
-    // 说明: 触摸监听直接挂在 mask 自己身上(见下方), 全程只有这一个全屏窗口,
-    // 因此不存在"后建的触摸层盖住画框层"的层级遮挡问题。
     try {  // L2483
         mask.setPosition(0, 0);
         mask.setSize(SW, SH);
-        // 透明化: rawWindow 默认带白色背景主题, 不清掉会整屏发白
-        mask.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-        var mv = ("getView" in mask) ? mask.getView() : null;
-        if (mv) {
-            if (mv.setBackgroundColor) {
-                mv.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-            }
-            if (mv.setZOrderOnTop) {
-                // 置顶: 保证画框层不会被随后创建的触摸层遮住
-                mv.setZOrderOnTop(true);
-                mv.setZOrderMediaOverlay(false);
-            }
-        }
-        if (mask.cv && mask.cv.setBackgroundColor) {
-            mask.cv.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-        }
-        // 关键: canvas 必须有明确的 LayoutParams 尺寸, 否则内部测量结果为 0×0,
-        // on("draw") 不会被派发、drawRect 也会落在可视区外 → 看不到任何绿框。
-        try {
-            if (mask.cv && mask.cv.getLayoutParams) {
-                var lp = mask.cv.getLayoutParams();
-                if (lp) {
-                    lp.width = SW;
-                    lp.height = SH;
-                    mask.cv.setLayoutParams(lp);
-                }
-            }
-        } catch (e2) {
-            log("canvas尺寸设置失败: " + e2);
-        }
-        mask.setDimAmount(0);
     } catch (e) {
-        log("mask初始化失败: " + e);
     }
     maskCanvas = mask.cv;  // L2484
     log("mask诊断: 窗口=" + SW + "x" + SH + " 节点数=" + nodesGlobal.length + " OFFSET_Y=" + OFFSET_Y);
@@ -2289,7 +2254,7 @@ function doAnalyze() {
     if (!analyzing) {  // L2502
         return;
     }
-    // 诊断: draw 是否被调用、画布实际尺寸与本次实际绘制的矩形数量
+    // 诊断: 记录 draw 是否被调用与画布尺寸(仅写日志, 不弹toast以免干扰使用)
     var _本次绘制 = 0;
     if (!mask.cv._已诊断) {
         mask.cv._已诊断 = true;
@@ -2326,56 +2291,24 @@ function doAnalyze() {
         } catch (e) {
         }
     }
-    // 诊断: 报告本次实际画了多少个框, 与节点数对比即可判断是"没画"还是"画了但看不见"
-    if (mask.cv._诊断次数 == null) {
-        mask.cv._诊断次数 = 0;
-    }
-    mask.cv._诊断次数++;
-    if (mask.cv._诊断次数 <= 3) {
-        try {
-            toast("绿框第" + mask.cv._诊断次数 + "帧: 画布" +
-                (canvas ? canvas.getWidth() : -1) + "x" + (canvas ? canvas.getHeight() : -1) +
-                " 绘制" + _本次绘制 + "框", "short");
-        } catch (de3) {
-        }
-    }
     return;
 });  // L2501
-    // 关键(修复"看不到绿框"): on("draw") 只在窗口首次布局时触发, 那一帧 canvas 还是 0×0,
-    // 之后 setSize 虽把画布改成 2999×6120, 但没有新的绘制帧 → 绿框永远没被画出来。
-    // 这里做两件事: ①延迟若干次 invalidate, 让布局完成后的画布重新绘制;
-    //              ②每次重绘都真正按当前尺寸画一遍(而不是只在首帧画)。
-    var 重绘次数 = 0;
-    var 重绘定时 = setInterval(function() {
-        重绘次数++;
-        try {
-            if (!analyzing || !maskCanvas) {
-                clearInterval(重绘定时);
-                return;
-            }
-            maskCanvas.invalidate();
-        } catch (e) {
-        }
-        if (重绘次数 >= 8) {
-            clearInterval(重绘定时);
-        }
-    }, 150);
     try {  // L2526
         mask.cv.invalidate();
     } catch (e) {
     }
-    // 关键重构(修复"看不到绿框" + "面板按钮点不动"):
-    // 原实现创建了【两个】全屏悬浮窗 —— mask(画框) 与 touchWin(触摸)。
-    // 后创建的 touchWin 层级更高, 会把 mask 整个盖住 → 绿框画了但看不见;
-    // 同时它又独占整屏触摸, 面板按钮的点击永远传不下去。
-    // 现改为: 触摸监听直接挂在 mask 自己的根 view 上, 全程只有【一个】全屏窗口,
-    // 不存在层级遮挡, 面板按钮的命中也由本层自行处理(见下方 ACTION_UP 分支)。
-    var touchWin = mask;
-    var tf = mask.getView ? mask.getView() : mask.cv;
+    // 恢复原版结构: 触摸层是独立的 rawWindow(原字节码中 touchFrame + setOnTouchListener)。
+    // 原版这两个窗口能正常工作(本机上原版 APK 可显示绿框并可点选控件), 因此保持原样。
+    // 面板按钮的点不動问题另由【按钮矩形自行命中】解决, 不需要改动窗口层级。
+    var touchWin = floaty.rawWindow(new XML(<frame id="touchFrame" w="*" h="*" bg="#00000000" />));  // L2529
+    wins.push(touchWin);  // L2532
+    var tf = touchWin.touchFrame;  // L2539
     try {  // L2533
-        mask.setTouchable(true);  // L2536
+        touchWin.setPosition(0, 0);  // L2534
+        touchWin.setSize(SW, SH);  // L2535
+        touchWin.setTouchable(true);  // L2536
     } catch (e) {
-        log("mask触摸层设置失败: " + e);
+        log("touchWin初始化失败: " + e);
     }
     try {  // L2540
         tf.setOnTouchListener(function(view, ev) {
