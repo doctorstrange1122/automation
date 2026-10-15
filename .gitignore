@@ -1,6 +1,6 @@
 # 项目内部数据 / 构建缓存
 .codebuddy/
-pages-deploy/.wrangler/
+auto/server/.wrangler/
 __pycache__/
 *.pyc
 

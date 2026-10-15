@@ -1,0 +1,12 @@
+name = "djq-activation"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+# 绑定 KV(可选): 用于管理正式激活码
+# 首次使用: wrangler kv namespace create 激活码  然后把返回 id 填到下面
+# [[kv_namespaces]]
+# binding = "激活码"
+# id = "你的KV命名空间ID"
+
+# 设置访问令牌(不要写进此文件):
+#   wrangler secret put TOKEN
