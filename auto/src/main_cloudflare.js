@@ -2232,6 +2232,15 @@ function doAnalyze() {
         '</frame>';
     var mask = floaty.rawWindow(new XML(maskXml));  // L2477
     wins.push(mask);  // L2482
+    // 层级保险: mask 需绘制绿框, 必须保证它处于 touchWin(全屏触摸层) 之下但仍可绘制。
+    // floaty 的窗口按创建顺序叠放, mask 先建所以在下层; 这里显式标记并在
+    // touchWin 创建后把 mask 重新提到可见位置, 避免被全屏触摸层遮住导致"看不到绿框"。
+    try {
+        if (mask.getView) {
+            mask.getView().setZOrderOnTop(false);
+        }
+    } catch (e) {
+    }
     try {  // L2483
         mask.setPosition(0, 0);
         mask.setSize(SW, SH);
@@ -2255,6 +2264,16 @@ function doAnalyze() {
         log("mask初始化失败: " + e);
     }
     maskCanvas = mask.cv;  // L2484
+    // 诊断: 绿框画不出来时, 只能靠运行时数据定位。把 canvas 真实尺寸与首帧状态直接显示出来。
+    try {
+        var cvw = (mask.cv && mask.cv.getWidth) ? mask.cv.getWidth() : -1;
+        var cvh = (mask.cv && mask.cv.getHeight) ? mask.cv.getHeight() : -1;
+        log("mask诊断: 窗口=" + SW + "x" + SH + " canvas=" + cvw + "x" + cvh +
+            " 节点数=" + nodesGlobal.length + " OFFSET_Y=" + OFFSET_Y);
+        toast("诊断: 画布" + cvw + "x" + cvh + "\n节点" + nodesGlobal.length + "个", "short");
+    } catch (de) {
+        log("mask诊断失败: " + de);
+    }
     var paintGreen = new Paint();  // L2486
     paintGreen.setColor(colors.parseColor("#FF00FF00"));  // L2487
     paintGreen.setStrokeWidth(3);  // L2488
@@ -2270,6 +2289,18 @@ function doAnalyze() {
     mask.cv.on("draw", function(canvas) {
     if (!analyzing) {  // L2502
         return;
+    }
+    // 诊断: draw 是否被调用、画布实际尺寸与绘制的矩形数量
+    if (!mask.cv._已诊断) {
+        mask.cv._已诊断 = true;
+        try {
+            var dcw = canvas ? canvas.getWidth() : -1;
+            var dch = canvas ? canvas.getHeight() : -1;
+            log("draw诊断: 被调用 canvas=" + dcw + "x" + dch + " 节点数=" + nodesGlobal.length);
+            toast("绿框绘制中\n画布" + dcw + "x" + dch, "short");
+        } catch (de2) {
+            log("draw诊断失败: " + de2);
+        }
     }
     var i = 0;  // L2505
     while (i < nodesGlobal.length) {
